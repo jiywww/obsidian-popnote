@@ -312,7 +312,23 @@ export default class PopNotePlugin extends Plugin {
 				this.popNoteWindow.hide();
 				return;
 			} else {
-				// Window is hidden, show it
+				// Window is hidden, check if we need a new note
+				const shouldReuseNote = this.shouldReuseLastNote();
+				console.log('Window hidden, should reuse note:', shouldReuseNote);
+				
+				if (!shouldReuseNote) {
+					// Buffer time expired or set to 'none', create new note
+					const noteFile = await this.createNewPopNote();
+					// Open the new note in the existing window
+					const leaf = this.app.workspace.getLeaf();
+					if (leaf) {
+						await leaf.openFile(noteFile);
+						this.currentFile = noteFile;
+						// Cursor position will be applied by the existing logic in showPopNoteWindow
+					}
+				}
+				
+				// Show the window
 				console.log('Showing PopNote window with ID:', this.popNoteWindow.id);
 				this.popNoteWindow.show();
 				this.popNoteWindow.focus();
