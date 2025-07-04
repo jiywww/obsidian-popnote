@@ -29,6 +29,10 @@ interface PopNoteSettings {
 	pickerDeleteShortcut: string;
 	pickerOpenInNewTabShortcut: string;
 	pickerOpenInNewWindowShortcut: string;
+	// Always-on-top settings
+	alwaysOnTop: boolean;
+	windowLevel: 'screen-saver' | 'normal';
+	visibleOnAllWorkspaces: boolean;
 }
 
 const DEFAULT_SETTINGS: PopNoteSettings = {
@@ -49,7 +53,11 @@ const DEFAULT_SETTINGS: PopNoteSettings = {
 	pickerPinShortcut: 'Mod+P',
 	pickerDeleteShortcut: 'Mod+D',
 	pickerOpenInNewTabShortcut: 'Mod+Enter',
-	pickerOpenInNewWindowShortcut: 'Alt+Enter'
+	pickerOpenInNewWindowShortcut: 'Alt+Enter',
+	// Always-on-top settings
+	alwaysOnTop: false,
+	windowLevel: 'screen-saver',
+	visibleOnAllWorkspaces: false
 }
 
 // Modal for selecting template files
@@ -513,6 +521,26 @@ export default class PopNotePlugin extends Plugin {
 					this.popNoteWindowIds.add(newWindow.id);
 					this.mainWindowVisibleBeforePopNote.set(newWindow.id, mainWindowVisible);
 					console.log('Tracked PopNote window:', file.path, 'ID:', newWindow.id);
+
+					// Apply always-on-top settings
+					if (this.settings.alwaysOnTop) {
+						try {
+							// Set always-on-top with specified window level
+							newWindow.setAlwaysOnTop(true, this.settings.windowLevel);
+							console.log(`Set window always-on-top with level: ${this.settings.windowLevel}`);
+							
+							// macOS specific: enable visibility on all workspaces/fullscreen
+							if (process.platform === 'darwin' && this.settings.visibleOnAllWorkspaces) {
+								newWindow.setVisibleOnAllWorkspaces(true, { 
+									visibleOnFullScreen: true 
+								});
+								console.log('Set window visible on all workspaces (macOS)');
+							}
+						} catch (error) {
+							console.error('Failed to set always-on-top:', error);
+							new Notice('Failed to set window always-on-top. Check console for details.');
+						}
+					}
 
 					// Add resize listener if in remember mode
 					if (this.settings.windowSizeMode === 'remember') {
@@ -1524,6 +1552,63 @@ class PopNoteSettingTab extends PluginSettingTab {
 					this.plugin.settings.autoMinimizeMode = value as 'off' | 'dynamic' | 'always';
 					await this.plugin.saveSettings();
 				}));
+
+		// Always-on-top settings
+		containerEl.createEl('h3', { text: 'Floating Window Settings' });
+		containerEl.createEl('p', {
+			text: 'Configure PopNote windows to float above other windows.',
+			cls: 'setting-item-description'
+		});
+
+		const alwaysOnTopSetting = new Setting(containerEl)
+			.setName('Always on top')
+			.setDesc('Make PopNote windows float above all other windows')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.alwaysOnTop)
+				.onChange(async (value) => {
+					this.plugin.settings.alwaysOnTop = value;
+					await this.plugin.saveSettings();
+					updateFloatingSettingsVisibility();
+				}));
+
+		// Window level setting - only show if always-on-top is enabled
+		const windowLevelSetting = new Setting(containerEl)
+			.setName('Window level')
+			.setDesc('Controls window priority. "High priority" is recommended for most use cases.')
+			.addDropdown(dropdown => dropdown
+				.addOption('screen-saver', 'High priority - Floats above most windows')
+				.addOption('normal', 'Normal - Standard window behavior')
+				.setValue(this.plugin.settings.windowLevel)
+				.onChange(async (value) => {
+					this.plugin.settings.windowLevel = value as 'screen-saver' | 'normal';
+					await this.plugin.saveSettings();
+				}));
+
+		// macOS specific setting - only show if always-on-top is enabled and on macOS
+		const visibleOnAllWorkspacesSetting = new Setting(containerEl)
+			.setName('Visible on all workspaces')
+			.setDesc('Required for floating above fullscreen apps on macOS. Prevents desktop space switching when using PopNote with fullscreen applications.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.visibleOnAllWorkspaces)
+				.onChange(async (value) => {
+					this.plugin.settings.visibleOnAllWorkspaces = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// Control visibility based on always-on-top setting
+		const updateFloatingSettingsVisibility = () => {
+			const display = this.plugin.settings.alwaysOnTop ? 'flex' : 'none';
+			windowLevelSetting.settingEl.style.display = display;
+			// Only show macOS setting on macOS and if always-on-top is enabled
+			if (process.platform === 'darwin') {
+				visibleOnAllWorkspacesSetting.settingEl.style.display = display;
+			} else {
+				visibleOnAllWorkspacesSetting.settingEl.style.display = 'none';
+			}
+		};
+
+		// Set initial visibility
+		updateFloatingSettingsVisibility();
 
 		// Global hotkey section
 		containerEl.createEl('h3', { text: 'Global Hotkey' });
