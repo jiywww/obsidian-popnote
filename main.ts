@@ -23,6 +23,7 @@ interface PopNoteSettings {
 	lastCreatedNote: {
 		path: string;
 		timestamp: number;
+		fileId?: string; // ctime as string
 	} | null;
 	// Picker keyboard shortcuts
 	pickerPinShortcut: string;
@@ -39,6 +40,11 @@ interface PopNoteSettings {
 	// Window position settings
 	windowPosition: 'center' | 'left' | 'right' | 'last';
 	lastWindowPosition: { x: number; y: number } | null;
+	// File tracking system
+	fileTracking: {
+		fileIdToPath: { [ctime: string]: string };
+		pathToFileId: { [filePath: string]: string };
+	};
 }
 
 const DEFAULT_SETTINGS: PopNoteSettings = {
@@ -69,7 +75,12 @@ const DEFAULT_SETTINGS: PopNoteSettings = {
 	cursorPositions: {},
 	// Window position settings
 	windowPosition: 'center',
-	lastWindowPosition: null
+	lastWindowPosition: null,
+	// File tracking system
+	fileTracking: {
+		fileIdToPath: {},
+		pathToFileId: {}
+	}
 }
 
 // Modal for selecting template files
@@ -132,6 +143,13 @@ export default class PopNotePlugin extends Plugin {
 
 		// Register all global hotkeys
 		this.registerGlobalHotkeys();
+
+		// Register file rename event listener
+		this.registerEvent(
+			this.app.vault.on('rename', (file, oldPath) => {
+				this.handleFileRename(file as TFile, oldPath);
+			})
+		);
 
 		// Add command for creating pop notes (also accessible from command palette)
 		this.addCommand({
@@ -213,6 +231,10 @@ export default class PopNotePlugin extends Plugin {
 	}
 
 	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+	
+	async saveSettingsAndReloadHotkeys() {
 		await this.saveData(this.settings);
 		// Re-register hotkeys when settings change
 		this.unregisterGlobalHotkeys();
@@ -309,6 +331,8 @@ export default class PopNotePlugin extends Plugin {
 			if (this.popNoteWindow.isVisible()) {
 				// Window is visible, hide it
 				console.log('Hiding PopNote window with ID:', this.popNoteWindow.id);
+				// Save cursor position before hiding
+				await this.saveCursorPosition();
 				this.popNoteWindow.hide();
 				return;
 			} else {
@@ -365,12 +389,24 @@ export default class PopNotePlugin extends Plugin {
 
 		let noteFile: TFile;
 		if (shouldReuseNote && this.settings.lastCreatedNote) {
-			// Try to find the existing note
-			const existingFile = this.app.vault.getAbstractFileByPath(this.settings.lastCreatedNote.path);
-			if (existingFile && existingFile instanceof TFile) {
-				noteFile = existingFile;
+			// Try to find the existing note using file tracking
+			const resolvedFile = await this.resolveFile(this.settings.lastCreatedNote.path);
+			if (resolvedFile) {
+				noteFile = resolvedFile;
+			} else if (this.settings.lastCreatedNote.fileId) {
+				// Try to resolve by file ID
+				const resolvedById = await this.resolveFile(this.settings.lastCreatedNote.fileId);
+				if (resolvedById) {
+					noteFile = resolvedById;
+					// Update the path in settings
+					this.settings.lastCreatedNote.path = resolvedById.path;
+					await this.saveSettings();
+				} else {
+					// If note doesn't exist anymore, create new one
+					noteFile = await this.createNewPopNote();
+				}
 			} else {
-				// If note doesn't exist anymore, create new one
+				// No file ID, create new note
 				noteFile = await this.createNewPopNote();
 			}
 		} else {
@@ -434,10 +470,14 @@ export default class PopNotePlugin extends Plugin {
 		// Create the note
 		const noteFile = await this.app.vault.create(notePath, content);
 
-		// Update last created note
+		// Update file tracking
+		this.updateFileTracking(noteFile);
+
+		// Update last created note with file ID
 		this.settings.lastCreatedNote = {
 			path: noteFile.path,
-			timestamp: Date.now()
+			timestamp: Date.now(),
+			fileId: String(noteFile.stat.ctime)
 		};
 		await this.saveSettings();
 
@@ -492,8 +532,12 @@ export default class PopNotePlugin extends Plugin {
 	}
 
 	async showPopNoteWindow(file: TFile) {
+		// Update file tracking when opening
+		this.updateFileTracking(file);
+		
 		// Save cursor position for current file if switching
 		if (this.currentFile && this.currentFile !== file) {
+			console.log(`Switching from ${this.currentFile.path} to ${file.path}, saving cursor position`);
 			await this.saveCursorPosition();
 		}
 
@@ -695,51 +739,95 @@ export default class PopNotePlugin extends Plugin {
 	}
 
 	private async saveCursorPosition() {
-		if (!this.currentFile || !this.popNoteWindow) return;
+		if (!this.currentFile || !this.popNoteWindow) {
+			console.log(`Cannot save cursor: currentFile=${!!this.currentFile}, popNoteWindow=${!!this.popNoteWindow}`);
+			return;
+		}
+
+		console.log(`Attempting to save cursor position for ${this.currentFile.path}`);
 
 		// Find the markdown view in the PopNote window
-		const leaves = this.app.workspace.getLeavesOfType('markdown');
-		for (const leaf of leaves) {
-			if (leaf.view?.containerEl?.ownerDocument?.defaultView === this.popNoteWindow) {
-				const view = leaf.view as MarkdownView;
-				if (view.editor && view.file?.path === this.currentFile.path) {
-					const cursor = view.editor.getCursor();
-					this.settings.cursorPositions[this.currentFile.path] = cursor;
-					await this.saveSettings();
-					break;
-				}
-			}
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeView && activeView.editor && activeView.file) {
+			// For now, let's save regardless of window check to see if it works
+			const cursor = activeView.editor.getCursor();
+			this.settings.cursorPositions[activeView.file.path] = cursor;
+			await this.saveSettings();
+			console.log(`Saved cursor position for ${activeView.file.path}:`, cursor);
+			console.log(`Total saved positions: ${Object.keys(this.settings.cursorPositions).length}`);
+		} else {
+			console.log(`No active view/editor/file to save cursor for`);
+			console.log(`activeView: ${!!activeView}, editor: ${activeView ? !!activeView.editor : 'N/A'}, file: ${activeView ? !!activeView.file : 'N/A'}`);
 		}
 	}
 
 	private async restoreCursorPosition(file: TFile) {
 		const savedPosition = this.settings.cursorPositions[file.path];
+		console.log(`Restoring cursor for ${file.path}, saved position:`, savedPosition);
+		console.log(`Cursor position setting: ${this.settings.cursorPosition}`);
+		console.log(`All saved positions:`, this.settings.cursorPositions);
 		
-		// Wait for editor to be ready
-		setTimeout(() => {
-			// Find the markdown view in the PopNote window
-			const leaves = this.app.workspace.getLeavesOfType('markdown');
-			for (const leaf of leaves) {
-				if (leaf.view?.containerEl?.ownerDocument?.defaultView === this.popNoteWindow) {
-					const view = leaf.view as MarkdownView;
-					if (view.editor && view.file?.path === file.path) {
-						const editor = view.editor;
+		// Register a one-time event handler for when the file is opened
+		const eventRef = this.app.workspace.on('file-open', (openedFile) => {
+			if (openedFile?.path === file.path) {
+				// Unregister the event handler
+				this.app.workspace.offref(eventRef);
+				
+				// Wait a bit for the editor to be ready
+				setTimeout(() => {
+					const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+					
+					if (activeView && activeView.file?.path === file.path && activeView.editor) {
+						const editor = activeView.editor;
 						
 						if (this.settings.cursorPosition === 'last' && savedPosition) {
 							editor.setCursor(savedPosition);
+							console.log(`Restored cursor position for ${file.path}:`, savedPosition);
 						} else if (this.settings.cursorPosition === 'end') {
 							const lastLine = editor.lastLine();
 							const lastLineLength = editor.getLine(lastLine).length;
 							editor.setCursor({ line: lastLine, ch: lastLineLength });
+							console.log(`Set cursor to end for ${file.path} (line ${lastLine}, ch ${lastLineLength})`);
 						} else {
 							// Default to start
 							editor.setCursor({ line: 0, ch: 0 });
+							console.log(`Set cursor to start for ${file.path}`);
 						}
-						break;
+						
+						// Force focus on the editor
+						editor.focus();
+					} else {
+						console.warn(`Could not restore cursor for ${file.path} - view not ready even after file-open event`);
 					}
-				}
+				}, 100);
 			}
-		}, 100);
+		});
+		
+		// Also set a timeout as fallback in case the event doesn't fire
+		setTimeout(() => {
+			// Clean up the event handler if it hasn't fired
+			this.app.workspace.offref(eventRef);
+			
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (activeView && activeView.file?.path === file.path && activeView.editor) {
+				const editor = activeView.editor;
+				
+				if (this.settings.cursorPosition === 'last' && savedPosition) {
+					editor.setCursor(savedPosition);
+					console.log(`Restored cursor position for ${file.path} via fallback:`, savedPosition);
+				} else if (this.settings.cursorPosition === 'end') {
+					const lastLine = editor.lastLine();
+					const lastLineLength = editor.getLine(lastLine).length;
+					editor.setCursor({ line: lastLine, ch: lastLineLength });
+					console.log(`Set cursor to end for ${file.path} via fallback`);
+				} else {
+					editor.setCursor({ line: 0, ch: 0 });
+					console.log(`Set cursor to start for ${file.path} via fallback`);
+				}
+				
+				editor.focus();
+			}
+		}, 500);
 	}
 
 
@@ -783,10 +871,15 @@ export default class PopNotePlugin extends Plugin {
 						// User pressed again within 3 seconds, create new note
 						console.log('Creating new note from navigation');
 						const newNote = await this.createNewPopNote();
+						// Save cursor position before switching
+						await this.saveCursorPosition();
+						
 						const leaf = this.app.workspace.getLeaf();
 						if (leaf) {
 							await leaf.openFile(newNote);
 							this.currentFile = newNote;
+							// For new notes, set cursor position based on settings
+							await this.restoreCursorPosition(newNote);
 						}
 						this.shouldCreateNewNote = false;
 						return;
@@ -815,11 +908,18 @@ export default class PopNotePlugin extends Plugin {
 
 			const targetNote = notes[targetIndex];
 			if (targetNote) {
+				console.log(`About to save cursor position, currentFile: ${this.currentFile?.path}`);
+				// Save cursor position before switching
+				await this.saveCursorPosition();
+				console.log(`After saveCursorPosition call`);
+				
 				// Open target note in current active leaf
 				const leaf = this.app.workspace.getLeaf();
 				if (leaf) {
 					await leaf.openFile(targetNote);
 					this.currentFile = targetNote;
+					// Restore cursor position
+					await this.restoreCursorPosition(targetNote);
 				}
 			}
 		});
@@ -904,16 +1004,104 @@ export default class PopNotePlugin extends Plugin {
 		}
 	}
 
+	// File tracking methods
+	private updateFileTracking(file: TFile) {
+		if (!file || !file.stat) return;
+		
+		const fileId = String(file.stat.ctime);
+		const oldFileId = this.settings.fileTracking.pathToFileId[file.path];
+		
+		// If file already tracked with different ID, clean up old reference
+		if (oldFileId && oldFileId !== fileId) {
+			delete this.settings.fileTracking.fileIdToPath[oldFileId];
+		}
+		
+		// Update tracking
+		this.settings.fileTracking.fileIdToPath[fileId] = file.path;
+		this.settings.fileTracking.pathToFileId[file.path] = fileId;
+	}
 
+	private handleFileRename(file: TFile, oldPath: string) {
+		if (!file || !file.stat) return;
+		
+		const fileId = String(file.stat.ctime);
+		
+		// Update file tracking
+		delete this.settings.fileTracking.pathToFileId[oldPath];
+		this.settings.fileTracking.pathToFileId[file.path] = fileId;
+		this.settings.fileTracking.fileIdToPath[fileId] = file.path;
+		
+		// Migrate cursor positions
+		if (this.settings.cursorPositions[oldPath]) {
+			this.settings.cursorPositions[file.path] = this.settings.cursorPositions[oldPath];
+			delete this.settings.cursorPositions[oldPath];
+		}
+		
+		// Update pinned notes
+		const pinnedIndex = this.settings.pinnedNotes.indexOf(oldPath);
+		if (pinnedIndex > -1) {
+			this.settings.pinnedNotes[pinnedIndex] = file.path;
+		}
+		
+		// Update lastCreatedNote if it matches
+		if (this.settings.lastCreatedNote?.path === oldPath) {
+			this.settings.lastCreatedNote.path = file.path;
+		}
+		
+		// Save settings
+		this.saveSettings();
+		
+		console.log(`File renamed: ${oldPath} -> ${file.path}`);
+	}
 
+	private async resolveFile(pathOrId: string): Promise<TFile | null> {
+		// First try direct path lookup
+		let file = this.app.vault.getAbstractFileByPath(pathOrId);
+		if (file && file instanceof TFile) {
+			this.updateFileTracking(file);
+			return file;
+		}
+		
+		// Try to find by file ID
+		const fileId = this.settings.fileTracking.pathToFileId[pathOrId] || pathOrId;
+		const currentPath = this.settings.fileTracking.fileIdToPath[fileId];
+		
+		if (currentPath) {
+			file = this.app.vault.getAbstractFileByPath(currentPath);
+			if (file && file instanceof TFile) {
+				this.updateFileTracking(file);
+				return file;
+			}
+		}
+		
+		return null;
+	}
 
 	async deletePopNote(file: TFile) {
 		// Remove from pinned notes if present
 		const pinnedIndex = this.settings.pinnedNotes.indexOf(file.path);
 		if (pinnedIndex > -1) {
 			this.settings.pinnedNotes.splice(pinnedIndex, 1);
-			await this.saveSettings();
 		}
+
+		// Clean up file tracking
+		const fileId = this.settings.fileTracking.pathToFileId[file.path];
+		if (fileId) {
+			delete this.settings.fileTracking.fileIdToPath[fileId];
+			delete this.settings.fileTracking.pathToFileId[file.path];
+		}
+
+		// Clean up cursor positions
+		if (this.settings.cursorPositions[file.path]) {
+			delete this.settings.cursorPositions[file.path];
+		}
+
+		// Update lastCreatedNote if it's the deleted file
+		if (this.settings.lastCreatedNote?.path === file.path) {
+			this.settings.lastCreatedNote = null;
+		}
+
+		await this.saveSettings();
 
 		// If the deleted file is currently displayed, hide the window
 		if (this.currentFile && this.currentFile.path === file.path) {
@@ -1776,7 +1964,7 @@ class PopNoteSettingTab extends PluginSettingTab {
 						this.plugin.settings.createNoteHotkey = value;
 						// Don't save if invalid to prevent errors
 						if (!value || this.plugin.isValidHotkey(value)) {
-							await this.plugin.saveSettings();
+							await this.plugin.saveSettingsAndReloadHotkeys();
 						}
 					});
 
