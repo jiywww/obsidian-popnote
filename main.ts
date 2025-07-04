@@ -15,6 +15,11 @@ interface QuickNotesSettings {
 	defaultWindowHeight: number;
 	pinnedNotes: string[]; // Array of note paths
 	autoMinimizeMode: 'off' | 'dynamic' | 'always'; // How to handle main window when closing quick notes
+	windowSizeMode: 'fixed' | 'remember'; // Whether to use fixed size or remember last used size
+	lastUsedWindowSize: {
+		width: number;
+		height: number;
+	} | null;
 	lastCreatedNote: {
 		path: string;
 		timestamp: number;
@@ -37,6 +42,8 @@ const DEFAULT_SETTINGS: QuickNotesSettings = {
 	defaultWindowHeight: 600,
 	pinnedNotes: [],
 	autoMinimizeMode: 'dynamic',
+	windowSizeMode: 'fixed',
+	lastUsedWindowSize: null,
 	lastCreatedNote: null,
 	// Picker keyboard shortcuts
 	pickerPinShortcut: 'Mod+P',
@@ -445,8 +452,28 @@ export default class QuickNotesPlugin extends Plugin {
 			console.error('Error checking main window visibility:', error);
 		}
 
-		// Create new popout window
-		const leaf = this.app.workspace.openPopoutLeaf();
+		// Determine window size based on settings
+		let width: number;
+		let height: number;
+		
+		if (this.settings.windowSizeMode === 'remember' && this.settings.lastUsedWindowSize) {
+			// Use last remembered size
+			width = this.settings.lastUsedWindowSize.width;
+			height = this.settings.lastUsedWindowSize.height;
+		} else {
+			// Use default fixed size
+			width = this.settings.defaultWindowWidth;
+			height = this.settings.defaultWindowHeight;
+		}
+
+		// Create new popout window with specified size
+		const windowData = {
+			size: {
+				width: width,
+				height: height
+			}
+		};
+		const leaf = this.app.workspace.openPopoutLeaf(windowData);
 
 		// Open the file
 		await leaf.openFile(file);
@@ -486,6 +513,19 @@ export default class QuickNotesPlugin extends Plugin {
 					this.quickNoteWindowIds.add(newWindow.id);
 					this.mainWindowVisibleBeforeQuickNote.set(newWindow.id, mainWindowVisible);
 					console.log('Tracked quick note window:', file.path, 'ID:', newWindow.id);
+					
+					// Add resize listener if in remember mode
+					if (this.settings.windowSizeMode === 'remember') {
+						newWindow.on('resize', () => {
+							const [newWidth, newHeight] = newWindow.getSize();
+							this.settings.lastUsedWindowSize = {
+								width: newWidth,
+								height: newHeight
+							};
+							this.saveSettings();
+							console.log(`Saved new window size: ${newWidth}x${newHeight}`);
+						});
+					}
 					
 					// Use 'close' event instead of 'closed'
 					newWindow.on('close', () => {
@@ -1396,7 +1436,29 @@ class QuickNotesSettingTab extends PluginSettingTab {
 		// Window settings
 		containerEl.createEl('h3', { text: 'Window Settings' });
 
+		// Store references to width and height settings for visibility control
+		let widthSetting: Setting;
+		let heightSetting: Setting;
+
 		new Setting(containerEl)
+			.setName('Window size mode')
+			.setDesc('Choose how window sizes are handled')
+			.addDropdown(dropdown => dropdown
+				.addOption('fixed', 'Fixed - Always use default size')
+				.addOption('remember', 'Remember - Use last window size')
+				.setValue(this.plugin.settings.windowSizeMode)
+				.onChange(async (value) => {
+					this.plugin.settings.windowSizeMode = value as 'fixed' | 'remember';
+					await this.plugin.saveSettings();
+					// Update visibility of default size settings
+					if (widthSetting && heightSetting) {
+						const display = value === 'fixed' ? 'flex' : 'none';
+						widthSetting.settingEl.style.display = display;
+						heightSetting.settingEl.style.display = display;
+					}
+				}));
+
+		widthSetting = new Setting(containerEl)
 			.setName('Default window width')
 			.setDesc('Width of new quick note windows (pixels)')
 			.addText(text => text
@@ -1410,7 +1472,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 					}
 				}));
 
-		new Setting(containerEl)
+		heightSetting = new Setting(containerEl)
 			.setName('Default window height')
 			.setDesc('Height of new quick note windows (pixels)')
 			.addText(text => text
@@ -1423,6 +1485,12 @@ class QuickNotesSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}
 				}));
+
+		// Set initial visibility based on current mode
+		if (this.plugin.settings.windowSizeMode === 'remember') {
+			widthSetting.settingEl.style.display = 'none';
+			heightSetting.settingEl.style.display = 'none';
+		}
 
 		new Setting(containerEl)
 			.setName('Main window behavior')
