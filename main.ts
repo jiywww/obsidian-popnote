@@ -391,7 +391,7 @@ export default class QuickNotesPlugin extends Plugin {
 
 		let name = this.settings.noteNamePattern;
 		for (const [key, value] of Object.entries(replacements)) {
-			name = name.replace(new RegExp(key, 'g'), value);
+			name = name.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), value);
 		}
 
 		return name;
@@ -416,7 +416,7 @@ export default class QuickNotesPlugin extends Plugin {
 
 		let processed = template;
 		for (const [key, value] of Object.entries(replacements)) {
-			processed = processed.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
+			processed = processed.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), value);
 		}
 
 		return processed;
