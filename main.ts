@@ -96,7 +96,7 @@ export default class QuickNotesPlugin extends Plugin {
 			new Notice('Quick Notes: Global shortcuts are not available. Plugin may not work correctly.');
 		} else {
 			console.log('globalShortcut is available');
-			
+
 			// Clean up any previously registered hotkeys before registering new ones
 			if (this.settings.createNoteHotkey) {
 				try {
@@ -158,7 +158,7 @@ export default class QuickNotesPlugin extends Plugin {
 				this.cleanupClosedWindows();
 			}, 5000)
 		);
-		
+
 		// Check for scheduled minimize
 		this.registerInterval(
 			window.setInterval(() => {
@@ -167,7 +167,7 @@ export default class QuickNotesPlugin extends Plugin {
 				}
 			}, 100)
 		);
-		
+
 		// Listen for window close events
 		this.registerEvent(
 			this.app.workspace.on('window-close', (workspaceWindow) => {
@@ -184,10 +184,10 @@ export default class QuickNotesPlugin extends Plugin {
 
 	onunload() {
 		console.log('Quick Notes plugin unloading...');
-		
+
 		// Unregister all global hotkeys
 		this.unregisterGlobalHotkeys();
-		
+
 		// Extra cleanup - unregister the specific hotkey even if not in our list
 		if (globalShortcut && this.settings.createNoteHotkey) {
 			try {
@@ -199,7 +199,7 @@ export default class QuickNotesPlugin extends Plugin {
 				console.error('Error in extra cleanup:', error);
 			}
 		}
-		
+
 		console.log('Quick Notes plugin unloaded');
 	}
 
@@ -221,7 +221,7 @@ export default class QuickNotesPlugin extends Plugin {
 		}
 
 		console.log('Registering global hotkey for creating quick notes...');
-		
+
 		// Only register the create note hotkey globally
 		if (this.settings.createNoteHotkey && this.isValidHotkey(this.settings.createNoteHotkey)) {
 			try {
@@ -230,12 +230,12 @@ export default class QuickNotesPlugin extends Plugin {
 					console.log(`Hotkey ${this.settings.createNoteHotkey} is already registered, unregistering first...`);
 					globalShortcut.unregister(this.settings.createNoteHotkey);
 				}
-				
+
 				const success = globalShortcut.register(this.settings.createNoteHotkey, () => {
 					console.log('Global create note hotkey triggered');
 					this.createOrOpenQuickNote();
 				});
-				
+
 				if (success) {
 					this.registeredHotkeys.push(this.settings.createNoteHotkey);
 					console.log(`Successfully registered global hotkey: ${this.settings.createNoteHotkey}`);
@@ -255,7 +255,7 @@ export default class QuickNotesPlugin extends Plugin {
 		if (!hotkey || hotkey.trim().length === 0) {
 			return false;
 		}
-		
+
 		// Check if hotkey ends with a modifier key (incomplete)
 		const incompletePatterns = ['+', 'Ctrl+', 'Cmd+', 'Alt+', 'Shift+', 'CmdOrCtrl+'];
 		for (const pattern of incompletePatterns) {
@@ -263,12 +263,12 @@ export default class QuickNotesPlugin extends Plugin {
 				return false;
 			}
 		}
-		
+
 		// Check if hotkey contains at least one actual key (not just modifiers)
 		const modifiers = ['ctrl', 'cmd', 'alt', 'shift', 'cmdorctrl', 'option', 'command', 'control'];
 		const parts = hotkey.toLowerCase().split('+');
 		const hasActualKey = parts.some(part => !modifiers.includes(part.trim()));
-		
+
 		return hasActualKey;
 	}
 
@@ -277,7 +277,7 @@ export default class QuickNotesPlugin extends Plugin {
 			console.log('globalShortcut not available, skipping unregister');
 			return;
 		}
-		
+
 		console.log('Unregistering global hotkeys...');
 		this.registeredHotkeys.forEach(hotkey => {
 			try {
@@ -296,11 +296,11 @@ export default class QuickNotesPlugin extends Plugin {
 
 	async createOrOpenQuickNote() {
 		console.log('createOrOpenQuickNote called');
-		
+
 		// Check buffer time logic
 		const shouldReuseNote = this.shouldReuseLastNote();
 		console.log('Should reuse note:', shouldReuseNote);
-		
+
 		let noteFile: TFile;
 		if (shouldReuseNote && this.settings.lastCreatedNote) {
 			// Try to find the existing note
@@ -321,14 +321,14 @@ export default class QuickNotesPlugin extends Plugin {
 
 	private shouldReuseLastNote(): boolean {
 		if (!this.settings.lastCreatedNote) return false;
-		
+
 		if (this.settings.bufferTime === 'none') return false;
 		if (this.settings.bufferTime === 'permanent') return true;
-		
+
 		// Check if within buffer time (in minutes)
 		const bufferMs = this.settings.bufferTime * 60 * 1000;
 		const timeSinceLastNote = Date.now() - this.settings.lastCreatedNote.timestamp;
-		
+
 		return timeSinceLastNote < bufferMs;
 	}
 
@@ -349,7 +349,7 @@ export default class QuickNotesPlugin extends Plugin {
 			// Normalize the template file path
 			const normalizedTemplatePath = normalizePath(this.settings.templateFile);
 			const templateFile = this.app.vault.getAbstractFileByPath(normalizedTemplatePath);
-			
+
 			if (templateFile && templateFile instanceof TFile) {
 				try {
 					content = await this.app.vault.read(templateFile);
@@ -441,8 +441,8 @@ export default class QuickNotesPlugin extends Plugin {
 		let mainWindowVisible = false;
 		try {
 			const allWindows = BrowserWindow.getAllWindows();
-			const mainWindow = allWindows.find((w: any) => 
-				!w.isDestroyed() && 
+			const mainWindow = allWindows.find((w: any) =>
+				!w.isDestroyed() &&
 				!this.quickNoteWindowIds.has(w.id) &&
 				w.isVisible()
 			);
@@ -455,7 +455,7 @@ export default class QuickNotesPlugin extends Plugin {
 		// Determine window size based on settings
 		let width: number;
 		let height: number;
-		
+
 		if (this.settings.windowSizeMode === 'remember' && this.settings.lastUsedWindowSize) {
 			// Use last remembered size
 			width = this.settings.lastUsedWindowSize.width;
@@ -484,17 +484,17 @@ export default class QuickNotesPlugin extends Plugin {
 				// Get all windows and find the newest one
 				const allWindows = BrowserWindow.getAllWindows();
 				console.log('All windows count:', allWindows.length);
-				
+
 				// Find the newest window (should be the popout)
 				let newWindow: any = null;
-				
+
 				// First try to find a window that's not the main window
 				for (let i = allWindows.length - 1; i >= 0; i--) {
 					const w = allWindows[i];
 					if (!w.isDestroyed()) {
 						const url = w.webContents.getURL();
 						console.log(`Window ${i} URL:`, url);
-						
+
 						// Popout windows often have about:blank URL initially
 						if (url === 'about:blank' || (url && !url.includes('index.html'))) {
 							newWindow = w;
@@ -502,18 +502,18 @@ export default class QuickNotesPlugin extends Plugin {
 						}
 					}
 				}
-				
+
 				// Fallback to the last window
 				if (!newWindow) {
 					newWindow = allWindows[allWindows.length - 1];
 				}
-				
+
 				if (newWindow) {
 					this.openWindows.set(file.path, newWindow);
 					this.quickNoteWindowIds.add(newWindow.id);
 					this.mainWindowVisibleBeforeQuickNote.set(newWindow.id, mainWindowVisible);
 					console.log('Tracked quick note window:', file.path, 'ID:', newWindow.id);
-					
+
 					// Add resize listener if in remember mode
 					if (this.settings.windowSizeMode === 'remember') {
 						newWindow.on('resize', () => {
@@ -526,16 +526,16 @@ export default class QuickNotesPlugin extends Plugin {
 							console.log(`Saved new window size: ${newWidth}x${newHeight}`);
 						});
 					}
-					
+
 					// Use 'close' event instead of 'closed'
 					newWindow.on('close', () => {
 						console.log('Quick note window closing, setting up auto-minimize...');
 						const wasMainWindowVisible = this.mainWindowVisibleBeforeQuickNote.get(newWindow.id) || false;
-						
+
 						this.quickNoteWindowIds.delete(newWindow.id);
 						this.openWindows.delete(file.path);
 						this.mainWindowVisibleBeforeQuickNote.delete(newWindow.id);
-						
+
 						// Handle main window based on settings and previous state
 						this.scheduleMainWindowMinimize(wasMainWindowVisible);
 					});
@@ -550,7 +550,7 @@ export default class QuickNotesPlugin extends Plugin {
 
 	private navigateNote(direction: 'previous' | 'next') {
 		console.log('navigateNote called:', direction);
-		
+
 		// Find current note from window
 		const currentPath = this.getCurrentNotePathFromWindow();
 		if (!currentPath) {
@@ -565,7 +565,7 @@ export default class QuickNotesPlugin extends Plugin {
 
 			let targetIndex: number;
 			const now = Date.now();
-			
+
 			// Fix logic: "next" should go to newer notes (lower index), "previous" to older notes (higher index)
 			if (direction === 'next') {
 				// Going to newer note
@@ -644,7 +644,7 @@ export default class QuickNotesPlugin extends Plugin {
 		// Move pinned notes to top
 		const pinnedNotes = notes.filter(note => this.settings.pinnedNotes.includes(note.path));
 		const unpinnedNotes = notes.filter(note => !this.settings.pinnedNotes.includes(note.path));
-		
+
 		return [...pinnedNotes, ...unpinnedNotes];
 	}
 
@@ -655,52 +655,52 @@ export default class QuickNotesPlugin extends Plugin {
 			}
 		}
 	}
-	
+
 	private scheduleMainWindowMinimize(wasMainWindowVisible: boolean = false) {
 		console.log('Schedule minimize - Mode:', this.settings.autoMinimizeMode, 'Was visible:', wasMainWindowVisible);
-		
+
 		// Check settings
 		if (this.settings.autoMinimizeMode === 'off') {
 			return;
 		}
-		
+
 		// Dynamic mode: only minimize if main window wasn't visible before
 		if (this.settings.autoMinimizeMode === 'dynamic' && wasMainWindowVisible) {
 			console.log('Dynamic mode: Main window was visible before, not minimizing');
 			return;
 		}
-		
+
 		// Always mode or dynamic mode with hidden main window
 		console.log('Scheduling main window minimize...');
 		this.minimizeScheduled = true;
-		
+
 		// Set timeout to stop checking after a few seconds
 		setTimeout(() => {
 			this.minimizeScheduled = false;
 		}, 3000);
 	}
-	
+
 	private checkAndMinimizeMainWindow() {
 		try {
 			const allWindows = BrowserWindow.getAllWindows();
-			
+
 			// Find a visible main window
 			const mainWindow = allWindows.find((w: any) => {
 				if (w.isDestroyed() || !w.isVisible()) return false;
-				
+
 				// Check if this is a main window (not a quick note)
 				const isQuickNote = this.quickNoteWindowIds.has(w.id);
 				if (isQuickNote) return false;
-				
+
 				// For now, return true for any non-quick-note window
 				return true;
 			});
-			
+
 			if (mainWindow) {
 				console.log('Found main window to minimize');
 				mainWindow.minimize();
 				this.minimizeScheduled = false;
-				
+
 				// Show notice
 				new Notice('Main window minimized. Use the taskbar or dock to restore it.');
 			}
@@ -708,52 +708,52 @@ export default class QuickNotesPlugin extends Plugin {
 			console.error('Error checking/minimizing main window:', error);
 		}
 	}
-	
+
 	private handleMainWindowAfterQuickNoteClose() {
 		if (this.settings.autoMinimizeMode === 'off') {
 			return;
 		}
-		
+
 		// For always mode, just minimize
 		if (this.settings.autoMinimizeMode === 'always') {
 			this.forceMinimizeMainWindow();
 			return;
 		}
-		
+
 		// For dynamic mode, we rely on the window-specific tracking
 		// The scheduleMainWindowMinimize will be called with the correct state
 	}
-	
+
 	private forceMinimizeMainWindow() {
 		if (this.settings.autoMinimizeMode === 'off') {
 			return;
 		}
-		
+
 		try {
 			console.log('Force minimizing main window...');
 			const allWindows = BrowserWindow.getAllWindows();
-			
+
 			// Try multiple strategies to find and minimize main window
 			allWindows.forEach((w: any) => {
 				if (w.isDestroyed()) return;
-				
+
 				try {
 					const bounds = w.getBounds();
 					const url = w.webContents.getURL();
 					const isVisible = w.isVisible();
-					
+
 					console.log(`Window check - Visible: ${isVisible}, Size: ${bounds.width}x${bounds.height}, URL: ${url}`);
-					
+
 					// If it's visible and not a small window (quick notes are usually smaller)
 					if (isVisible && !this.quickNoteWindowIds.has(w.id)) {
 						console.log('Minimizing window ID:', w.id);
 						w.minimize();
-						
+
 						// Only show notice once
 						if (!this.minimizeScheduled) {
 							new Notice('Main window minimized. Use the taskbar or dock to restore it.');
 							this.minimizeScheduled = true;
-							
+
 							// Reset flag after a delay
 							setTimeout(() => {
 								this.minimizeScheduled = false;
@@ -768,7 +768,7 @@ export default class QuickNotesPlugin extends Plugin {
 			console.error('Error in forceMinimizeMainWindow:', error);
 		}
 	}
-	
+
 
 	async deleteQuickNote(file: TFile) {
 		// Remove from pinned notes if present
@@ -818,7 +818,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				alt: evt.altKey,
 				shift: evt.shiftKey
 			});
-			
+
 			// Handle keyboard shortcuts directly here as a fallback
 			const isMod = evt.ctrlKey || evt.metaKey;
 			if (isMod && evt.key.toLowerCase() === 'enter') {
@@ -835,7 +835,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				return;
 			}
 		}
-		
+
 		// Default action: open in current tab
 		this.openInCurrentTab(item);
 	}
@@ -848,22 +848,22 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 		super(app);
 		this.plugin = plugin;
 		this.notes = [];
-		
+
 		// Set placeholder text
 		this.setPlaceholder('Search quick notes...');
-		
+
 		// Alternative approach: Override keydown handler
 		// Use capturing phase to intercept events before they reach child elements
 		this.keydownHandler = this.handleKeyDown.bind(this);
 		this.modalEl.addEventListener('keydown', this.keydownHandler, true);
-		
+
 		// Also add a mutation observer to track selection changes
 		this.setupSelectionObserver();
 	}
-	
+
 	private keydownHandler: (evt: KeyboardEvent) => void;
 	private observer: MutationObserver | null = null;
-	
+
 	private setupSelectionObserver() {
 		this.observer = new MutationObserver((mutations) => {
 			for (const mutation of mutations) {
@@ -888,7 +888,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				}
 			}
 		});
-		
+
 		// Start observing when the results container is available
 		setTimeout(() => {
 			// @ts-ignore - accessing private property
@@ -902,7 +902,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			}
 		}, 100);
 	}
-	
+
 	private handleKeyDown(evt: KeyboardEvent) {
 		console.log('Modal keydown event:', evt.key, 'Modifiers:', {
 			ctrl: evt.ctrlKey,
@@ -910,14 +910,14 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			alt: evt.altKey,
 			shift: evt.shiftKey
 		});
-		
+
 		// Try multiple ways to get selected item
 		let selected = this.getSelectedItem();
 		if (!selected && this.currentSelected) {
 			console.log('Using currentSelected from renderSuggestion');
 			selected = this.currentSelected;
 		}
-		
+
 		if (!selected) {
 			console.log('No item selected - trying to get first visible item');
 			// As a last resort, try to get the first item if there's only one
@@ -929,11 +929,11 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				return;
 			}
 		}
-		
+
 		// Check if current key combination matches any configured shortcuts
 		const currentShortcut = this.getShortcutFromEvent(evt);
 		console.log('Current shortcut:', currentShortcut);
-		
+
 		// Pin/Unpin
 		if (currentShortcut === this.plugin.settings.pickerPinShortcut) {
 			evt.preventDefault();
@@ -943,7 +943,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			this.togglePin(selected);
 			return;
 		}
-		
+
 		// Delete
 		if (currentShortcut === this.plugin.settings.pickerDeleteShortcut) {
 			evt.preventDefault();
@@ -953,7 +953,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			this.deleteNote(selected);
 			return;
 		}
-		
+
 		// Open in new tab
 		if (currentShortcut === this.plugin.settings.pickerOpenInNewTabShortcut) {
 			evt.preventDefault();
@@ -962,7 +962,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			this.openInNewTab(selected);
 			return;
 		}
-		
+
 		// Open in new window
 		if (currentShortcut === this.plugin.settings.pickerOpenInNewWindowShortcut) {
 			evt.preventDefault();
@@ -978,22 +978,22 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			return;
 		}
 	}
-	
+
 	private getShortcutFromEvent(evt: KeyboardEvent): string {
 		const parts: string[] = [];
-		
+
 		// Add modifiers in consistent order
 		if (evt.ctrlKey || evt.metaKey) parts.push('Mod');
 		if (evt.altKey) parts.push('Alt');
 		if (evt.shiftKey) parts.push('Shift');
-		
+
 		// Add the key
 		if (evt.key === 'Enter') {
 			parts.push('Enter');
 		} else {
 			parts.push(evt.key.toUpperCase());
 		}
-		
+
 		return parts.join('+');
 	}
 
@@ -1001,32 +1001,32 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 		super.onOpen();
 		console.log('QuickNotesPickerModal opened');
 		console.log('Scope available:', !!this.scope);
-		
+
 		// Load notes
 		this.notes = await this.plugin.getQuickNotesSorted();
-		
+
 		// Set instructions based on current settings
 		this.updateInstructions();
-		
+
 		// Force initial display of all items
 		// @ts-ignore - accessing private property
 		this.inputEl.value = '';
 		// @ts-ignore - accessing private method
 		this.onInput();
-		
+
 		// Focus on the input element to ensure keyboard events are captured
 		// @ts-ignore - accessing private property
 		if (this.inputEl) {
 			this.inputEl.focus();
 		}
-		
+
 		// Register custom keymaps based on settings
 		setTimeout(() => {
 			// Delay registration slightly to ensure modal is fully initialized
 			this.registerShortcuts();
 		}, 100);
 	}
-	
+
 	onClose() {
 		// Clean up event listener
 		if (this.keydownHandler) {
@@ -1043,7 +1043,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 		// Sort pinned notes first
 		const pinnedNotes: QuickNoteItem[] = [];
 		const unpinnedNotes: QuickNoteItem[] = [];
-		
+
 		this.notes.forEach(file => {
 			const isPinned = this.plugin.settings.pinnedNotes.includes(file.path);
 			const date = new Date(this.plugin.settings.sortOrder === 'created' ? file.stat.ctime : file.stat.mtime);
@@ -1053,14 +1053,14 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				metadata: date.toLocaleString(),
 				isPinned
 			};
-			
+
 			if (isPinned) {
 				pinnedNotes.push(item);
 			} else {
 				unpinnedNotes.push(item);
 			}
 		});
-		
+
 		return [...pinnedNotes, ...unpinnedNotes];
 	}
 
@@ -1070,33 +1070,33 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 
 	renderSuggestion(value: FuzzyMatch<QuickNoteItem>, el: HTMLElement) {
 		const item = value.item;
-		
+
 		// Track selected item when rendering
 		if (el.parentElement?.hasClass('is-selected')) {
 			this.currentSelected = item;
 		}
-		
+
 		el.addClass('quick-note-suggestion');
-		
+
 		// Create container
 		const container = el.createDiv({ cls: 'quick-note-suggestion-content' });
-		
+
 		// Create title container that includes pin icon and name
 		const titleContainer = container.createDiv({ cls: 'quick-note-suggestion-title' });
-		
+
 		// Pin indicator
 		if (item.isPinned) {
 			titleContainer.createSpan({ text: '📌 ', cls: 'quick-note-pin-indicator' });
 		}
-		
+
 		// Note name
 		titleContainer.createSpan({ text: item.displayText });
-		
+
 		// Metadata
 		const metadata = container.createDiv({ cls: 'quick-note-suggestion-metadata' });
 		metadata.setText(item.metadata);
 	}
-	
+
 	private getSelectedItem(): QuickNoteItem | null {
 		// @ts-ignore - accessing private property
 		const selectedIndex = this.chooser?.selectedItem;
@@ -1123,7 +1123,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			this.close();
 		}
 	}
-	
+
 	private async openInNewTab(item: QuickNoteItem) {
 		const leaf = this.app.workspace.getLeaf('tab');
 		await leaf.openFile(item.file);
@@ -1154,7 +1154,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			}
 		}
 	}
-	
+
 	private updateInstructions() {
 		// Format shortcut for display
 		const formatShortcut = (shortcut: string) => {
@@ -1167,7 +1167,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				.replace(/Enter/g, '↵')
 				.toLowerCase();
 		};
-		
+
 		this.setInstructions([
 			{ command: '↑↓', purpose: 'navigate' },
 			{ command: '↵', purpose: 'open in current tab' },
@@ -1183,19 +1183,19 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 		return new Promise((resolve) => {
 			const modal = new Modal(this.app);
 			modal.titleEl.setText('Delete Quick Note');
-			modal.contentEl.createEl('p', { 
-				text: `Are you sure you want to delete "${noteName}"?` 
+			modal.contentEl.createEl('p', {
+				text: `Are you sure you want to delete "${noteName}"?`
 			});
-			
+
 			const buttonContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
-			
+
 			const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
 			cancelButton.addEventListener('click', () => {
 				modal.close();
 				resolve(false);
 			});
-			
-			const deleteButton = buttonContainer.createEl('button', { 
+
+			const deleteButton = buttonContainer.createEl('button', {
 				text: 'Delete',
 				cls: 'mod-warning'
 			});
@@ -1203,12 +1203,12 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				modal.close();
 				resolve(true);
 			});
-			
+
 			modal.open();
 		});
 	}
-	
-	
+
+
 	private registerShortcuts() {
 		// Parse shortcut string to get modifiers and key
 		const parseShortcut = (shortcut: string): { modifiers: Modifier[], key: string } => {
@@ -1222,7 +1222,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				// This handles both uppercase and lowercase properly
 				key = key;
 			}
-			
+
 			const modifierStrings = parts.slice(0, -1);
 			const modifiers: Modifier[] = modifierStrings.map(mod => {
 				switch (mod.toLowerCase()) {
@@ -1243,7 +1243,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			});
 			return { modifiers, key };
 		};
-		
+
 		// Register pin shortcut
 		const pinShortcut = parseShortcut(this.plugin.settings.pickerPinShortcut);
 		console.log('Registering pin shortcut:', pinShortcut.modifiers, pinShortcut.key);
@@ -1260,7 +1260,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			}
 			return false;
 		});
-		
+
 		// Register delete shortcut
 		const deleteShortcut = parseShortcut(this.plugin.settings.pickerDeleteShortcut);
 		this.scope.register(deleteShortcut.modifiers, deleteShortcut.key, (evt: KeyboardEvent) => {
@@ -1272,7 +1272,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			}
 			return false;
 		});
-		
+
 		// Register open in new tab shortcut
 		const newTabShortcut = parseShortcut(this.plugin.settings.pickerOpenInNewTabShortcut);
 		this.scope.register(newTabShortcut.modifiers, newTabShortcut.key, (evt: KeyboardEvent) => {
@@ -1284,7 +1284,7 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			}
 			return false;
 		});
-		
+
 		// Register open in new window shortcut
 		const newWindowShortcut = parseShortcut(this.plugin.settings.pickerOpenInNewWindowShortcut);
 		this.scope.register(newWindowShortcut.modifiers, newWindowShortcut.key, (evt: KeyboardEvent) => {
@@ -1312,7 +1312,12 @@ class QuickNotesSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'Quick Notes Settings' });
+		// Main title
+		containerEl.createEl('h3', { text: 'Quick Notes Settings' });
+		containerEl.createEl('p', {
+			text: 'Configure how Quick Notes creates, manages, and organizes your notes.',
+			cls: 'setting-item-description'
+		});
 
 		// Quick notes folder
 		new Setting(containerEl)
@@ -1341,11 +1346,11 @@ class QuickNotesSettingTab extends PluginSettingTab {
 		// Template file
 		const templateSetting = new Setting(containerEl)
 			.setName('Template file')
-			.setDesc('Optional template file for new quick notes');
-		
+			.setDesc('Optional template file for new quick notes. Available variables: {{title}},{{date}}, {{time}}, {{timestamp}}, {{year}}, {{month}}, {{day}}, {{hour}}, {{minute}}, {{second}}');
+
 		// Store reference to text input for later use
 		let textInput: any;
-		
+
 		// Add button first
 		templateSetting.addButton(button => {
 			button
@@ -1361,7 +1366,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 					}).open();
 				});
 		});
-		
+
 		// Add text input after button
 		templateSetting.addText(text => {
 			textInput = text;
@@ -1383,7 +1388,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 					.addOption('none', 'Always create new note')
 					.addOption('permanent', 'Always reuse last note')
 					.addOption('custom', 'Custom time (minutes)');
-				
+
 				if (this.plugin.settings.bufferTime === 'none' || this.plugin.settings.bufferTime === 'permanent') {
 					dropdown.setValue(this.plugin.settings.bufferTime);
 				} else {
@@ -1435,6 +1440,10 @@ class QuickNotesSettingTab extends PluginSettingTab {
 
 		// Window settings
 		containerEl.createEl('h3', { text: 'Window Settings' });
+		containerEl.createEl('p', {
+			text: 'Control how Quick Note windows appear and behave.',
+			cls: 'setting-item-description'
+		});
 
 		// Store references to width and height settings for visibility control
 		let widthSetting: Setting;
@@ -1507,19 +1516,22 @@ class QuickNotesSettingTab extends PluginSettingTab {
 
 		// Global hotkey section
 		containerEl.createEl('h3', { text: 'Global Hotkey' });
-		containerEl.createEl('p', { text: 'This hotkey works system-wide, even when Obsidian is not focused.' });
+		containerEl.createEl('p', {
+			text: 'Set up a system-wide hotkey that works even when Obsidian is not focused.',
+			cls: 'setting-item-description'
+		});
 
 		const globalHotkeySetting = new Setting(containerEl)
 			.setName('Create/open quick note')
 			.setDesc('Global hotkey to create or open a quick note from anywhere. ');
-		
+
 		// Add link to description
 		const descEl = globalHotkeySetting.descEl;
 		descEl.createEl('a', {
 			text: 'See available modifiers',
 			href: 'https://www.electronjs.org/docs/latest/api/accelerator#available-modifiers'
 		});
-		
+
 		globalHotkeySetting
 			.addText(text => {
 				text
@@ -1532,7 +1544,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 						}
 					});
-				
+
 				// Add validation indicator
 				text.inputEl.addEventListener('input', () => {
 					const value = text.getValue();
@@ -1548,23 +1560,26 @@ class QuickNotesSettingTab extends PluginSettingTab {
 
 		// Obsidian hotkeys info
 		containerEl.createEl('h3', { text: 'Obsidian Hotkeys' });
-		containerEl.createEl('p', { 
-			text: 'Configure hotkeys for navigation and picker in Obsidian Settings → Hotkeys. Search for "Quick Notes" to find all available commands:' 
+		containerEl.createEl('p', {
+			text: 'Configure additional hotkeys within Obsidian for navigation and quick actions.',
+			cls: 'setting-item-description'
 		});
-		
+		containerEl.createEl('p', {
+			text: 'Go to Obsidian Settings → Hotkeys and search for "Quick Notes" to find these commands:'
+		});
+
 		const hotkeyList = containerEl.createEl('ul');
 		hotkeyList.createEl('li', { text: 'Quick Notes: Navigate to previous quick note' });
 		hotkeyList.createEl('li', { text: 'Quick Notes: Navigate to next quick note' });
 		hotkeyList.createEl('li', { text: 'Quick Notes: Show quick notes picker' });
-		
+
 		// Picker keyboard shortcuts
 		containerEl.createEl('h3', { text: 'Quick Notes Picker Shortcuts' });
-		containerEl.createEl('p', { text: 'Customize keyboard shortcuts within the Quick Notes picker.' });
-		containerEl.createEl('p', { 
-			text: 'Use Cmd (Mac) or Ctrl (Windows/Linux) instead of "Mod". Example: "Cmd+P" or "Ctrl+P"',
+		containerEl.createEl('p', {
+			text: 'Customize keyboard shortcuts for actions within the Quick Notes picker. Use Cmd (Mac) or Ctrl (Windows/Linux) instead of "Mod". Example: "Cmd+P" or "Ctrl+P"',
 			cls: 'setting-item-description'
 		});
-		
+
 		new Setting(containerEl)
 			.setName('Pin/Unpin shortcut')
 			.setDesc('Keyboard shortcut to pin or unpin a note in the picker')
@@ -1575,7 +1590,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 					this.plugin.settings.pickerPinShortcut = value;
 					await this.plugin.saveSettings();
 				}));
-				
+
 		new Setting(containerEl)
 			.setName('Delete shortcut')
 			.setDesc('Keyboard shortcut to delete a note in the picker')
@@ -1586,7 +1601,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 					this.plugin.settings.pickerDeleteShortcut = value;
 					await this.plugin.saveSettings();
 				}));
-				
+
 		new Setting(containerEl)
 			.setName('Open in new tab shortcut')
 			.setDesc('Keyboard shortcut to open a note in a new tab')
@@ -1597,7 +1612,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 					this.plugin.settings.pickerOpenInNewTabShortcut = value;
 					await this.plugin.saveSettings();
 				}));
-				
+
 		new Setting(containerEl)
 			.setName('Open in new window shortcut')
 			.setDesc('Keyboard shortcut to open a note in a new window')
