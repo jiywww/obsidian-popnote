@@ -1,0 +1,95 @@
+/* Quick Notes Plugin Styles */
+
+.search-input-container {
+    margin-bottom: 20px;
+}
+
+.search-input-container input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+}
+
+.quick-notes-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.quick-note-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    gap: 10px;
+}
+
+.quick-note-item:hover {
+    background: var(--background-secondary);
+}
+
+.pin-indicator {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.note-link {
+    flex: 1;
+    text-decoration: none;
+    color: var(--text-normal);
+    cursor: pointer;
+}
+
+.note-link:hover {
+    color: var(--text-accent);
+}
+
+.note-metadata {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-right: 10px;
+}
+
+.note-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.note-actions button {
+    padding: 4px 8px;
+    font-size: 0.85em;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.note-actions button:hover {
+    background: var(--background-modifier-hover);
+}
+
+.note-actions button.mod-warning {
+    color: var(--text-error);
+}
+
+.note-actions button.mod-warning:hover {
+    background: var(--background-modifier-error);
+}
+
+.empty-state {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px;
+}
+
+/* Invalid hotkey input styling */
+input.is-invalid {
+    border-color: var(--text-error) !important;
+    background-color: rgba(255, 0, 0, 0.05);
+}
+
+input.is-invalid:focus {
+    box-shadow: 0 0 0 2px rgba(255, 0, 0, 0.2);
+}

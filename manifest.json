@@ -1,0 +1,12 @@
+{
+	"id": "quick-notes",
+	"name": "Quick Notes",
+	"version": "0.0.1",
+	"main": "main.js",
+	"minAppVersion": "1.6.0",
+	"description": "System-hotkey quick notes: create/reuse, pop window, navigate, picker.",
+	"author": "jiywww",
+	"authorUrl": "https://github.com/jiywww",
+	"fundingUrl": "https://github.com/sponsors/jiywww",
+	"isDesktopOnly": true
+}
