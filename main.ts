@@ -841,11 +841,12 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			}
 		}
 		
-		const isMod = evt.ctrlKey || evt.metaKey;
-		const isAlt = evt.altKey;
+		// Check if current key combination matches any configured shortcuts
+		const currentShortcut = this.getShortcutFromEvent(evt);
+		console.log('Current shortcut:', currentShortcut);
 		
-		// Pin/Unpin - Cmd/Ctrl+P
-		if (isMod && evt.key.toLowerCase() === 'p') {
+		// Pin/Unpin
+		if (currentShortcut === this.plugin.settings.pickerPinShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
 			evt.stopImmediatePropagation();
@@ -854,8 +855,8 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			return;
 		}
 		
-		// Delete - Cmd/Ctrl+D
-		if (isMod && evt.key.toLowerCase() === 'd') {
+		// Delete
+		if (currentShortcut === this.plugin.settings.pickerDeleteShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
 			evt.stopImmediatePropagation();
@@ -864,8 +865,8 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			return;
 		}
 		
-		// Open in new tab - Cmd/Ctrl+Enter
-		if (isMod && evt.key === 'Enter') {
+		// Open in new tab
+		if (currentShortcut === this.plugin.settings.pickerOpenInNewTabShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
 			console.log('Open in new tab shortcut detected');
@@ -873,8 +874,8 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			return;
 		}
 		
-		// Open in new window - Alt/Opt+Enter
-		if (isAlt && evt.key === 'Enter') {
+		// Open in new window
+		if (currentShortcut === this.plugin.settings.pickerOpenInNewWindowShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
 			console.log('Open in new window shortcut detected');
@@ -888,6 +889,24 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 			return;
 		}
 	}
+	
+	private getShortcutFromEvent(evt: KeyboardEvent): string {
+		const parts: string[] = [];
+		
+		// Add modifiers in consistent order
+		if (evt.ctrlKey || evt.metaKey) parts.push('Mod');
+		if (evt.altKey) parts.push('Alt');
+		if (evt.shiftKey) parts.push('Shift');
+		
+		// Add the key
+		if (evt.key === 'Enter') {
+			parts.push('Enter');
+		} else {
+			parts.push(evt.key.toUpperCase());
+		}
+		
+		return parts.join('+');
+	}
 
 	async onOpen() {
 		super.onOpen();
@@ -897,16 +916,8 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 		// Load notes
 		this.notes = await this.plugin.getQuickNotesSorted();
 		
-		// Set instructions
-		this.setInstructions([
-			{ command: '↑↓', purpose: 'navigate' },
-			{ command: '↵', purpose: 'open in current tab' },
-			{ command: 'cmd+↵', purpose: 'open in new tab' },
-			{ command: 'opt+↵', purpose: 'open in new window' },
-			{ command: 'cmd+p', purpose: 'pin/unpin' },
-			{ command: 'cmd+d', purpose: 'delete' },
-			{ command: 'esc', purpose: 'close' }
-		]);
+		// Set instructions based on current settings
+		this.updateInstructions();
 		
 		// Force initial display of all items
 		// @ts-ignore - accessing private property
@@ -981,14 +992,16 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 		// Create container
 		const container = el.createDiv({ cls: 'quick-note-suggestion-content' });
 		
+		// Create title container that includes pin icon and name
+		const titleContainer = container.createDiv({ cls: 'quick-note-suggestion-title' });
+		
 		// Pin indicator
 		if (item.isPinned) {
-			container.createSpan({ text: '📌 ', cls: 'quick-note-pin-indicator' });
+			titleContainer.createSpan({ text: '📌 ', cls: 'quick-note-pin-indicator' });
 		}
 		
 		// Note name
-		const title = container.createSpan({ cls: 'quick-note-suggestion-title' });
-		title.setText(item.displayText);
+		titleContainer.createSpan({ text: item.displayText });
 		
 		// Metadata
 		const metadata = container.createDiv({ cls: 'quick-note-suggestion-metadata' });
@@ -1051,6 +1064,30 @@ class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
 				this.close();
 			}
 		}
+	}
+	
+	private updateInstructions() {
+		// Format shortcut for display
+		const formatShortcut = (shortcut: string) => {
+			return shortcut
+				.replace(/Mod\+/g, 'cmd+')
+				.replace(/Ctrl\+/g, 'ctrl+')
+				.replace(/Cmd\+/g, 'cmd+')
+				.replace(/Alt\+/g, 'opt+')
+				.replace(/Shift\+/g, 'shift+')
+				.replace(/Enter/g, '↵')
+				.toLowerCase();
+		};
+		
+		this.setInstructions([
+			{ command: '↑↓', purpose: 'navigate' },
+			{ command: '↵', purpose: 'open in current tab' },
+			{ command: formatShortcut(this.plugin.settings.pickerOpenInNewTabShortcut), purpose: 'open in new tab' },
+			{ command: formatShortcut(this.plugin.settings.pickerOpenInNewWindowShortcut), purpose: 'open in new window' },
+			{ command: formatShortcut(this.plugin.settings.pickerPinShortcut), purpose: 'pin/unpin' },
+			{ command: formatShortcut(this.plugin.settings.pickerDeleteShortcut), purpose: 'delete' },
+			{ command: 'esc', purpose: 'close' }
+		]);
 	}
 
 	private async confirmDelete(noteName: string): Promise<boolean> {
@@ -1373,12 +1410,16 @@ class QuickNotesSettingTab extends PluginSettingTab {
 		// Picker keyboard shortcuts
 		containerEl.createEl('h3', { text: 'Quick Notes Picker Shortcuts' });
 		containerEl.createEl('p', { text: 'Customize keyboard shortcuts within the Quick Notes picker.' });
+		containerEl.createEl('p', { 
+			text: 'Use Cmd (Mac) or Ctrl (Windows/Linux) instead of "Mod". Example: "Cmd+P" or "Ctrl+P"',
+			cls: 'setting-item-description'
+		});
 		
 		new Setting(containerEl)
 			.setName('Pin/Unpin shortcut')
 			.setDesc('Keyboard shortcut to pin or unpin a note in the picker')
 			.addText(text => text
-				.setPlaceholder('Mod+P')
+				.setPlaceholder('Cmd+P or Ctrl+P')
 				.setValue(this.plugin.settings.pickerPinShortcut)
 				.onChange(async (value) => {
 					this.plugin.settings.pickerPinShortcut = value;
@@ -1389,7 +1430,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 			.setName('Delete shortcut')
 			.setDesc('Keyboard shortcut to delete a note in the picker')
 			.addText(text => text
-				.setPlaceholder('Mod+D')
+				.setPlaceholder('Cmd+D or Ctrl+D')
 				.setValue(this.plugin.settings.pickerDeleteShortcut)
 				.onChange(async (value) => {
 					this.plugin.settings.pickerDeleteShortcut = value;
@@ -1400,7 +1441,7 @@ class QuickNotesSettingTab extends PluginSettingTab {
 			.setName('Open in new tab shortcut')
 			.setDesc('Keyboard shortcut to open a note in a new tab')
 			.addText(text => text
-				.setPlaceholder('Mod+Enter')
+				.setPlaceholder('Cmd+Enter or Ctrl+Enter')
 				.setValue(this.plugin.settings.pickerOpenInNewTabShortcut)
 				.onChange(async (value) => {
 					this.plugin.settings.pickerOpenInNewTabShortcut = value;
