@@ -1,7 +1,7 @@
 {
-	"name": "quick-notes",
+	"name": "popnote",
 	"version": "0.0.2",
-	"description": "Quick Notes for Obsidian",
+	"description": "PopNote for Obsidian",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
