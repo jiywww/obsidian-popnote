@@ -1,7 +1,7 @@
 {
 	"id": "quick-notes",
 	"name": "Quick Notes",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"main": "main.js",
 	"minAppVersion": "1.6.0",
 	"description": "System-hotkey quick notes: create/reuse, pop window, navigate, picker.",

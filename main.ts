@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, normalizePath, MarkdownView, Vault } from 'obsidian';
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, normalizePath, MarkdownView, Vault, FuzzySuggestModal, FuzzyMatch, Modifier } from 'obsidian';
 
 // Access Electron APIs
 const { remote } = require('electron');
@@ -19,6 +19,11 @@ interface QuickNotesSettings {
 		path: string;
 		timestamp: number;
 	} | null;
+	// Picker keyboard shortcuts
+	pickerPinShortcut: string;
+	pickerDeleteShortcut: string;
+	pickerOpenInNewTabShortcut: string;
+	pickerOpenInNewWindowShortcut: string;
 }
 
 const DEFAULT_SETTINGS: QuickNotesSettings = {
@@ -32,7 +37,12 @@ const DEFAULT_SETTINGS: QuickNotesSettings = {
 	defaultWindowHeight: 600,
 	pinnedNotes: [],
 	autoMinimizeMode: 'dynamic',
-	lastCreatedNote: null
+	lastCreatedNote: null,
+	// Picker keyboard shortcuts
+	pickerPinShortcut: 'Mod+P',
+	pickerDeleteShortcut: 'Mod+D',
+	pickerOpenInNewTabShortcut: 'Mod+Enter',
+	pickerOpenInNewWindowShortcut: 'Alt+Enter'
 }
 
 export default class QuickNotesPlugin extends Plugin {
@@ -701,113 +711,466 @@ export default class QuickNotesPlugin extends Plugin {
 	}
 }
 
-class QuickNotesPickerModal extends Modal {
+interface QuickNoteItem {
+	file: TFile;
+	displayText: string;
+	metadata: string;
+	isPinned: boolean;
+}
+
+class QuickNotesPickerModal extends FuzzySuggestModal<QuickNoteItem> {
+	// Add the required abstract method
+	onChooseItem(item: QuickNoteItem, evt: MouseEvent | KeyboardEvent): void {
+		// Check for modifier keys in the event
+		if (evt instanceof KeyboardEvent) {
+			console.log('onChooseItem KeyboardEvent:', evt.key, 'Modifiers:', {
+				ctrl: evt.ctrlKey,
+				meta: evt.metaKey,
+				alt: evt.altKey,
+				shift: evt.shiftKey
+			});
+			
+			// Handle keyboard shortcuts directly here as a fallback
+			const isMod = evt.ctrlKey || evt.metaKey;
+			if (isMod && evt.key.toLowerCase() === 'enter') {
+				evt.preventDefault();
+				this.openInNewTab(item);
+				return;
+			} else if (evt.altKey && evt.key === 'Enter') {
+				evt.preventDefault();
+				this.close();
+				// Use setTimeout to ensure modal is closed before opening new window
+				setTimeout(() => {
+					this.plugin.openNoteInNewWindow(item.file);
+				}, 50);
+				return;
+			}
+		}
+		
+		// Default action: open in current tab
+		this.openInCurrentTab(item);
+	}
+
 	plugin: QuickNotesPlugin;
+	private notes: TFile[];
+	private currentSelected: QuickNoteItem | null = null;
 
 	constructor(app: App, plugin: QuickNotesPlugin) {
 		super(app);
 		this.plugin = plugin;
+		this.notes = [];
+		
+		// Set placeholder text
+		this.setPlaceholder('Search quick notes...');
+		
+		// Alternative approach: Override keydown handler
+		// Use capturing phase to intercept events before they reach child elements
+		this.keydownHandler = this.handleKeyDown.bind(this);
+		this.modalEl.addEventListener('keydown', this.keydownHandler, true);
+		
+		// Also add a mutation observer to track selection changes
+		this.setupSelectionObserver();
+	}
+	
+	private keydownHandler: (evt: KeyboardEvent) => void;
+	private observer: MutationObserver | null = null;
+	
+	private setupSelectionObserver() {
+		this.observer = new MutationObserver((mutations) => {
+			for (const mutation of mutations) {
+				if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+					const target = mutation.target as HTMLElement;
+					if (target.hasClass('is-selected')) {
+						// Find the corresponding item
+						const suggestionEl = target.querySelector('.quick-note-suggestion');
+						if (suggestionEl) {
+							const titleEl = suggestionEl.querySelector('.quick-note-suggestion-title');
+							if (titleEl) {
+								const displayText = titleEl.textContent || '';
+								const items = this.getItems();
+								const item = items.find(i => i.displayText === displayText);
+								if (item) {
+									this.currentSelected = item;
+									console.log('Selection changed to:', displayText);
+								}
+							}
+						}
+					}
+				}
+			}
+		});
+		
+		// Start observing when the results container is available
+		setTimeout(() => {
+			// @ts-ignore - accessing private property
+			const resultsEl = this.resultContainerEl;
+			if (resultsEl && this.observer) {
+				this.observer.observe(resultsEl, {
+					attributes: true,
+					attributeFilter: ['class'],
+					subtree: true
+				});
+			}
+		}, 100);
+	}
+	
+	private handleKeyDown(evt: KeyboardEvent) {
+		console.log('Modal keydown event:', evt.key, 'Modifiers:', {
+			ctrl: evt.ctrlKey,
+			meta: evt.metaKey,
+			alt: evt.altKey,
+			shift: evt.shiftKey
+		});
+		
+		// Try multiple ways to get selected item
+		let selected = this.getSelectedItem();
+		if (!selected && this.currentSelected) {
+			console.log('Using currentSelected from renderSuggestion');
+			selected = this.currentSelected;
+		}
+		
+		if (!selected) {
+			console.log('No item selected - trying to get first visible item');
+			// As a last resort, try to get the first item if there's only one
+			const items = this.getItems();
+			if (items.length === 1) {
+				selected = items[0];
+				console.log('Using first item as fallback');
+			} else {
+				return;
+			}
+		}
+		
+		const isMod = evt.ctrlKey || evt.metaKey;
+		const isAlt = evt.altKey;
+		
+		// Pin/Unpin - Cmd/Ctrl+P
+		if (isMod && evt.key.toLowerCase() === 'p') {
+			evt.preventDefault();
+			evt.stopPropagation();
+			evt.stopImmediatePropagation();
+			console.log('Pin shortcut detected via keydown');
+			this.togglePin(selected);
+			return;
+		}
+		
+		// Delete - Cmd/Ctrl+D
+		if (isMod && evt.key.toLowerCase() === 'd') {
+			evt.preventDefault();
+			evt.stopPropagation();
+			evt.stopImmediatePropagation();
+			console.log('Delete shortcut detected via keydown');
+			this.deleteNote(selected);
+			return;
+		}
+		
+		// Open in new tab - Cmd/Ctrl+Enter
+		if (isMod && evt.key === 'Enter') {
+			evt.preventDefault();
+			evt.stopPropagation();
+			console.log('Open in new tab shortcut detected');
+			this.openInNewTab(selected);
+			return;
+		}
+		
+		// Open in new window - Alt/Opt+Enter
+		if (isAlt && evt.key === 'Enter') {
+			evt.preventDefault();
+			evt.stopPropagation();
+			console.log('Open in new window shortcut detected');
+			this.close();
+			// Use setTimeout to ensure modal is closed before opening new window
+			setTimeout(() => {
+				if (selected) {
+					this.plugin.openNoteInNewWindow(selected.file);
+				}
+			}, 50);
+			return;
+		}
 	}
 
 	async onOpen() {
-		const { contentEl } = this;
-		contentEl.empty();
-		contentEl.createEl('h2', { text: 'Quick Notes' });
-
-		// Add search input
-		const searchContainer = contentEl.createDiv('search-input-container');
-		const searchInput = searchContainer.createEl('input', {
-			type: 'text',
-			placeholder: 'Search notes...'
-		});
-
-		// Notes container
-		const notesContainer = contentEl.createDiv('quick-notes-list');
+		super.onOpen();
+		console.log('QuickNotesPickerModal opened');
+		console.log('Scope available:', !!this.scope);
 		
-		// Load and display notes
-		const notes = await this.plugin.getQuickNotesSorted();
-		this.displayNotes(notes, notesContainer, searchInput.value);
-
-		// Search functionality
-		searchInput.addEventListener('input', () => {
-			this.displayNotes(notes, notesContainer, searchInput.value);
-		});
-
-		// Focus search input
-		searchInput.focus();
+		// Load notes
+		this.notes = await this.plugin.getQuickNotesSorted();
+		
+		// Set instructions
+		this.setInstructions([
+			{ command: '↑↓', purpose: 'navigate' },
+			{ command: '↵', purpose: 'open in current tab' },
+			{ command: 'cmd+↵', purpose: 'open in new tab' },
+			{ command: 'opt+↵', purpose: 'open in new window' },
+			{ command: 'cmd+p', purpose: 'pin/unpin' },
+			{ command: 'cmd+d', purpose: 'delete' },
+			{ command: 'esc', purpose: 'close' }
+		]);
+		
+		// Force initial display of all items
+		// @ts-ignore - accessing private property
+		this.inputEl.value = '';
+		// @ts-ignore - accessing private method
+		this.onInput();
+		
+		// Focus on the input element to ensure keyboard events are captured
+		// @ts-ignore - accessing private property
+		if (this.inputEl) {
+			this.inputEl.focus();
+		}
+		
+		// Register custom keymaps based on settings
+		setTimeout(() => {
+			// Delay registration slightly to ensure modal is fully initialized
+			this.registerShortcuts();
+		}, 100);
+	}
+	
+	onClose() {
+		// Clean up event listener
+		if (this.keydownHandler) {
+			this.modalEl.removeEventListener('keydown', this.keydownHandler, true);
+		}
+		// Clean up observer
+		if (this.observer) {
+			this.observer.disconnect();
+		}
+		super.onClose();
 	}
 
-	private displayNotes(notes: TFile[], container: HTMLElement, searchTerm: string) {
-		container.empty();
-
-		const filteredNotes = notes.filter(note => 
-			note.basename.toLowerCase().includes(searchTerm.toLowerCase())
-		);
-
-		if (filteredNotes.length === 0) {
-			container.createEl('p', { text: 'No notes found', cls: 'empty-state' });
-			return;
-		}
-
-		filteredNotes.forEach(note => {
-			const noteItem = container.createDiv('quick-note-item');
+	getItems(): QuickNoteItem[] {
+		// Sort pinned notes first
+		const pinnedNotes: QuickNoteItem[] = [];
+		const unpinnedNotes: QuickNoteItem[] = [];
+		
+		this.notes.forEach(file => {
+			const isPinned = this.plugin.settings.pinnedNotes.includes(file.path);
+			const date = new Date(this.plugin.settings.sortOrder === 'created' ? file.stat.ctime : file.stat.mtime);
+			const item: QuickNoteItem = {
+				file,
+				displayText: file.basename,
+				metadata: date.toLocaleString(),
+				isPinned
+			};
 			
-			// Pin indicator
-			if (this.plugin.settings.pinnedNotes.includes(note.path)) {
-				noteItem.createSpan({ text: '📌', cls: 'pin-indicator' });
+			if (isPinned) {
+				pinnedNotes.push(item);
+			} else {
+				unpinnedNotes.push(item);
 			}
+		});
+		
+		return [...pinnedNotes, ...unpinnedNotes];
+	}
 
-			// Note name
-			const noteLink = noteItem.createEl('a', {
-				text: note.basename,
-				cls: 'note-link'
-			});
-			noteLink.addEventListener('click', async (e) => {
-				e.preventDefault();
-				await this.plugin.openNoteInNewWindow(note);
+	getItemText(item: QuickNoteItem): string {
+		return item.displayText;
+	}
+
+	renderSuggestion(value: FuzzyMatch<QuickNoteItem>, el: HTMLElement) {
+		const item = value.item;
+		
+		// Track selected item when rendering
+		if (el.parentElement?.hasClass('is-selected')) {
+			this.currentSelected = item;
+		}
+		
+		el.addClass('quick-note-suggestion');
+		
+		// Create container
+		const container = el.createDiv({ cls: 'quick-note-suggestion-content' });
+		
+		// Pin indicator
+		if (item.isPinned) {
+			container.createSpan({ text: '📌 ', cls: 'quick-note-pin-indicator' });
+		}
+		
+		// Note name
+		const title = container.createSpan({ cls: 'quick-note-suggestion-title' });
+		title.setText(item.displayText);
+		
+		// Metadata
+		const metadata = container.createDiv({ cls: 'quick-note-suggestion-metadata' });
+		metadata.setText(item.metadata);
+	}
+	
+	private getSelectedItem(): QuickNoteItem | null {
+		// @ts-ignore - accessing private property
+		const selectedIndex = this.chooser?.selectedItem;
+		console.log('getSelectedItem - selectedIndex:', selectedIndex);
+		if (selectedIndex !== undefined && selectedIndex >= 0) {
+			// @ts-ignore - accessing private property
+			const values = this.chooser?.values;
+			console.log('getSelectedItem - values:', values?.length);
+			if (values && values[selectedIndex]) {
+				const item = values[selectedIndex].item;
+				console.log('getSelectedItem - found item:', item.displayText);
+				return item;
+			}
+		}
+		console.log('getSelectedItem - no item found');
+		return null;
+	}
+
+
+	private async openInCurrentTab(item: QuickNoteItem) {
+		const leaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+		if (leaf) {
+			await leaf.openFile(item.file);
+			this.close();
+		}
+	}
+	
+	private async openInNewTab(item: QuickNoteItem) {
+		const leaf = this.app.workspace.getLeaf('tab');
+		await leaf.openFile(item.file);
+		this.close();
+	}
+
+	private togglePin(item: QuickNoteItem) {
+		this.plugin.togglePinNote(item.file.path);
+		// Update the item's pinned status
+		item.isPinned = !item.isPinned;
+		// Close and reopen to refresh the display
+		this.close();
+		new QuickNotesPickerModal(this.app, this.plugin).open();
+	}
+
+	private async deleteNote(item: QuickNoteItem) {
+		const confirmDelete = await this.confirmDelete(item.displayText);
+		if (confirmDelete) {
+			await this.plugin.deleteQuickNote(item.file);
+			// Remove from notes array
+			this.notes = this.notes.filter(note => note.path !== item.file.path);
+			// Close and reopen to refresh the display
+			if (this.notes.length > 0) {
 				this.close();
-			});
-
-			// Note metadata
-			const metadata = noteItem.createSpan({ cls: 'note-metadata' });
-			const date = new Date(this.plugin.settings.sortOrder === 'created' ? note.stat.ctime : note.stat.mtime);
-			metadata.setText(date.toLocaleString());
-
-			// Actions
-			const actions = noteItem.createDiv('note-actions');
-
-			// Open in current tab button
-			const openButton = actions.createEl('button', { text: 'Open here' });
-			openButton.addEventListener('click', async () => {
-				await this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf.openFile(note);
+				new QuickNotesPickerModal(this.app, this.plugin).open();
+			} else {
 				this.close();
-			});
+			}
+		}
+	}
 
-			// Pin/Unpin button
-			const isPinned = this.plugin.settings.pinnedNotes.includes(note.path);
-			const pinButton = actions.createEl('button', { 
-				text: isPinned ? 'Unpin' : 'Pin' 
+	private async confirmDelete(noteName: string): Promise<boolean> {
+		return new Promise((resolve) => {
+			const modal = new Modal(this.app);
+			modal.titleEl.setText('Delete Quick Note');
+			modal.contentEl.createEl('p', { 
+				text: `Are you sure you want to delete "${noteName}"?` 
 			});
-			pinButton.addEventListener('click', () => {
-				this.plugin.togglePinNote(note.path);
-				this.displayNotes(notes, container, searchTerm);
+			
+			const buttonContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
+			
+			const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
+			cancelButton.addEventListener('click', () => {
+				modal.close();
+				resolve(false);
 			});
-
-			// Delete button
-			const deleteButton = actions.createEl('button', { text: 'Delete', cls: 'mod-warning' });
-			deleteButton.addEventListener('click', async () => {
-				if (confirm(`Delete "${note.basename}"?`)) {
-					await this.plugin.deleteQuickNote(note);
-					notes.remove(note);
-					this.displayNotes(notes, container, searchTerm);
+			
+			const deleteButton = buttonContainer.createEl('button', { 
+				text: 'Delete',
+				cls: 'mod-warning'
+			});
+			deleteButton.addEventListener('click', () => {
+				modal.close();
+				resolve(true);
+			});
+			
+			modal.open();
+		});
+	}
+	
+	
+	private registerShortcuts() {
+		// Parse shortcut string to get modifiers and key
+		const parseShortcut = (shortcut: string): { modifiers: Modifier[], key: string } => {
+			const parts = shortcut.split('+');
+			// Handle key - convert 'Enter' to lowercase, but keep single letters as-is
+			let key = parts[parts.length - 1];
+			if (key.toLowerCase() === 'enter') {
+				key = 'Enter';
+			} else if (key.length === 1) {
+				// For single letter keys, use the exact case from settings
+				// This handles both uppercase and lowercase properly
+				key = key;
+			}
+			
+			const modifierStrings = parts.slice(0, -1);
+			const modifiers: Modifier[] = modifierStrings.map(mod => {
+				switch (mod.toLowerCase()) {
+					case 'mod':
+					case 'cmd':
+					case 'ctrl':
+						return 'Mod' as Modifier;
+					case 'alt':
+					case 'opt':
+						return 'Alt' as Modifier;
+					case 'shift':
+						return 'Shift' as Modifier;
+					case 'meta':
+						return 'Meta' as Modifier;
+					default:
+						return 'Mod' as Modifier;
 				}
 			});
+			return { modifiers, key };
+		};
+		
+		// Register pin shortcut
+		const pinShortcut = parseShortcut(this.plugin.settings.pickerPinShortcut);
+		console.log('Registering pin shortcut:', pinShortcut.modifiers, pinShortcut.key);
+		this.scope.register(pinShortcut.modifiers, pinShortcut.key, (evt: KeyboardEvent) => {
+			console.log('Pin shortcut triggered');
+			evt.preventDefault();
+			evt.stopPropagation();
+			const selected = this.getSelectedItem();
+			if (selected) {
+				console.log('Toggling pin for:', selected.displayText);
+				this.togglePin(selected);
+			} else {
+				console.log('No item selected');
+			}
+			return false;
 		});
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+		
+		// Register delete shortcut
+		const deleteShortcut = parseShortcut(this.plugin.settings.pickerDeleteShortcut);
+		this.scope.register(deleteShortcut.modifiers, deleteShortcut.key, (evt: KeyboardEvent) => {
+			evt.preventDefault();
+			evt.stopPropagation();
+			const selected = this.getSelectedItem();
+			if (selected) {
+				this.deleteNote(selected);
+			}
+			return false;
+		});
+		
+		// Register open in new tab shortcut
+		const newTabShortcut = parseShortcut(this.plugin.settings.pickerOpenInNewTabShortcut);
+		this.scope.register(newTabShortcut.modifiers, newTabShortcut.key, (evt: KeyboardEvent) => {
+			evt.preventDefault();
+			evt.stopPropagation();
+			const selected = this.getSelectedItem();
+			if (selected) {
+				this.openInNewTab(selected);
+			}
+			return false;
+		});
+		
+		// Register open in new window shortcut
+		const newWindowShortcut = parseShortcut(this.plugin.settings.pickerOpenInNewWindowShortcut);
+		this.scope.register(newWindowShortcut.modifiers, newWindowShortcut.key, (evt: KeyboardEvent) => {
+			evt.preventDefault();
+			evt.stopPropagation();
+			const selected = this.getSelectedItem();
+			if (selected) {
+				this.plugin.openNoteInNewWindow(selected.file);
+				this.close();
+			}
+			return false;
+		});
 	}
 }
 
@@ -1006,5 +1369,53 @@ class QuickNotesSettingTab extends PluginSettingTab {
 		hotkeyList.createEl('li', { text: 'Quick Notes: Navigate to previous quick note' });
 		hotkeyList.createEl('li', { text: 'Quick Notes: Navigate to next quick note' });
 		hotkeyList.createEl('li', { text: 'Quick Notes: Show quick notes picker' });
+		
+		// Picker keyboard shortcuts
+		containerEl.createEl('h3', { text: 'Quick Notes Picker Shortcuts' });
+		containerEl.createEl('p', { text: 'Customize keyboard shortcuts within the Quick Notes picker.' });
+		
+		new Setting(containerEl)
+			.setName('Pin/Unpin shortcut')
+			.setDesc('Keyboard shortcut to pin or unpin a note in the picker')
+			.addText(text => text
+				.setPlaceholder('Mod+P')
+				.setValue(this.plugin.settings.pickerPinShortcut)
+				.onChange(async (value) => {
+					this.plugin.settings.pickerPinShortcut = value;
+					await this.plugin.saveSettings();
+				}));
+				
+		new Setting(containerEl)
+			.setName('Delete shortcut')
+			.setDesc('Keyboard shortcut to delete a note in the picker')
+			.addText(text => text
+				.setPlaceholder('Mod+D')
+				.setValue(this.plugin.settings.pickerDeleteShortcut)
+				.onChange(async (value) => {
+					this.plugin.settings.pickerDeleteShortcut = value;
+					await this.plugin.saveSettings();
+				}));
+				
+		new Setting(containerEl)
+			.setName('Open in new tab shortcut')
+			.setDesc('Keyboard shortcut to open a note in a new tab')
+			.addText(text => text
+				.setPlaceholder('Mod+Enter')
+				.setValue(this.plugin.settings.pickerOpenInNewTabShortcut)
+				.onChange(async (value) => {
+					this.plugin.settings.pickerOpenInNewTabShortcut = value;
+					await this.plugin.saveSettings();
+				}));
+				
+		new Setting(containerEl)
+			.setName('Open in new window shortcut')
+			.setDesc('Keyboard shortcut to open a note in a new window')
+			.addText(text => text
+				.setPlaceholder('Alt+Enter')
+				.setValue(this.plugin.settings.pickerOpenInNewWindowShortcut)
+				.onChange(async (value) => {
+					this.plugin.settings.pickerOpenInNewWindowShortcut = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 }
