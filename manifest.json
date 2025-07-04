@@ -1,7 +1,7 @@
 {
 	"id": "popnote",
 	"name": "PopNote",
-	"version": "0.0.2",
+	"version": "0.9.0",
 	"main": "main.js",
 	"minAppVersion": "1.6.0",
 	"description": "System-hotkey PopNotes: create/reuse, pop window, navigate, picker.",
