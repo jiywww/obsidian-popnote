@@ -324,14 +324,27 @@ export default class PopNotePlugin extends Plugin {
 					if (leaf) {
 						await leaf.openFile(noteFile);
 						this.currentFile = noteFile;
-						// Cursor position will be applied by the existing logic in showPopNoteWindow
 					}
+				}
+				
+				// Apply window position if needed
+				if (this.settings.windowPosition !== 'last') {
+					// Recalculate position based on current setting
+					const [width, height] = this.popNoteWindow.getSize();
+					const { x, y } = this.calculateWindowPosition(width, height);
+					this.popNoteWindow.setPosition(x, y);
 				}
 				
 				// Show the window
 				console.log('Showing PopNote window with ID:', this.popNoteWindow.id);
 				this.popNoteWindow.show();
 				this.popNoteWindow.focus();
+				
+				// Restore cursor position for current file
+				if (this.currentFile) {
+					await this.restoreCursorPosition(this.currentFile);
+				}
+				
 				return;
 			}
 		}
