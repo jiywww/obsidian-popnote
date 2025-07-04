@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, normalizePath, MarkdownView, Vault, FuzzySuggestModal, FuzzyMatch, Modifier } from 'obsidian';
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, normalizePath, MarkdownView, Vault, FuzzySuggestModal, FuzzyMatch, Modifier, TextComponent } from 'obsidian';
 
 // Access Electron APIs
 const { remote } = require('electron');
@@ -43,6 +43,31 @@ const DEFAULT_SETTINGS: QuickNotesSettings = {
 	pickerDeleteShortcut: 'Mod+D',
 	pickerOpenInNewTabShortcut: 'Mod+Enter',
 	pickerOpenInNewWindowShortcut: 'Alt+Enter'
+}
+
+// Modal for selecting template files
+class TemplateFileSelectorModal extends FuzzySuggestModal<TFile> {
+	plugin: QuickNotesPlugin;
+	onSelect: (file: TFile) => void;
+
+	constructor(app: App, plugin: QuickNotesPlugin, onSelect: (file: TFile) => void) {
+		super(app);
+		this.plugin = plugin;
+		this.onSelect = onSelect;
+		this.setPlaceholder('Select a template file...');
+	}
+
+	getItems(): TFile[] {
+		return this.app.vault.getMarkdownFiles();
+	}
+
+	getItemText(file: TFile): string {
+		return file.path;
+	}
+
+	onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent): void {
+		this.onSelect(file);
+	}
 }
 
 export default class QuickNotesPlugin extends Plugin {
@@ -314,11 +339,26 @@ export default class QuickNotesPlugin extends Plugin {
 		// Get template content
 		let content = '';
 		if (this.settings.templateFile) {
-			const templateFile = this.app.vault.getAbstractFileByPath(this.settings.templateFile);
+			// Normalize the template file path
+			const normalizedTemplatePath = normalizePath(this.settings.templateFile);
+			const templateFile = this.app.vault.getAbstractFileByPath(normalizedTemplatePath);
+			
 			if (templateFile && templateFile instanceof TFile) {
-				content = await this.app.vault.read(templateFile);
-				// Process template variables
-				content = this.processTemplate(content);
+				try {
+					content = await this.app.vault.read(templateFile);
+					// Process template variables
+					content = this.processTemplate(content);
+					console.log('Template applied successfully from:', normalizedTemplatePath);
+				} catch (error) {
+					console.error('Error reading template file:', error);
+					new Notice(`Failed to read template file: ${this.settings.templateFile}`);
+				}
+			} else {
+				console.warn('Template file not found:', normalizedTemplatePath);
+				// Don't show notice for empty template setting
+				if (this.settings.templateFile.trim()) {
+					new Notice(`Template file not found: ${this.settings.templateFile}`);
+				}
 			}
 		}
 
@@ -362,12 +402,21 @@ export default class QuickNotesPlugin extends Plugin {
 		const replacements: Record<string, string> = {
 			'{{date}}': now.toLocaleDateString(),
 			'{{time}}': now.toLocaleTimeString(),
-			'{{title}}': this.generateNoteName()
+			'{{title}}': this.generateNoteName(),
+			'{{timestamp}}': now.getTime().toString(),
+			'{{year}}': now.getFullYear().toString(),
+			'{{month}}': (now.getMonth() + 1).toString().padStart(2, '0'),
+			'{{day}}': now.getDate().toString().padStart(2, '0'),
+			'{{hour}}': now.getHours().toString().padStart(2, '0'),
+			'{{minute}}': now.getMinutes().toString().padStart(2, '0'),
+			'{{second}}': now.getSeconds().toString().padStart(2, '0'),
+			'{{weekday}}': now.toLocaleDateString('en-US', { weekday: 'long' }),
+			'{{monthname}}': now.toLocaleDateString('en-US', { month: 'long' })
 		};
 
 		let processed = template;
 		for (const [key, value] of Object.entries(replacements)) {
-			processed = processed.replace(new RegExp(key, 'g'), value);
+			processed = processed.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
 		}
 
 		return processed;
@@ -1250,16 +1299,40 @@ class QuickNotesSettingTab extends PluginSettingTab {
 				}));
 
 		// Template file
-		new Setting(containerEl)
+		const templateSetting = new Setting(containerEl)
 			.setName('Template file')
-			.setDesc('Optional template file for new quick notes')
-			.addText(text => text
+			.setDesc('Optional template file for new quick notes');
+		
+		// Store reference to text input for later use
+		let textInput: any;
+		
+		// Add button first
+		templateSetting.addButton(button => {
+			button
+				.setButtonText('Select')
+				.setCta()
+				.onClick(() => {
+					new TemplateFileSelectorModal(this.app, this.plugin, (file) => {
+						if (textInput) {
+							textInput.setValue(file.path);
+						}
+						this.plugin.settings.templateFile = file.path;
+						this.plugin.saveSettings();
+					}).open();
+				});
+		});
+		
+		// Add text input after button
+		templateSetting.addText(text => {
+			textInput = text;
+			text
 				.setPlaceholder('Templates/Quick Note Template.md')
 				.setValue(this.plugin.settings.templateFile)
 				.onChange(async (value) => {
 					this.plugin.settings.templateFile = value;
 					await this.plugin.saveSettings();
-				}));
+				});
+		});
 
 		// Buffer time
 		new Setting(containerEl)

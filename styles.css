@@ -70,3 +70,12 @@ input.is-invalid {
 input.is-invalid:focus {
     box-shadow: 0 0 0 2px rgba(255, 0, 0, 0.2);
 }
+
+/* Template file suggester styling */
+.template-file-suggestion-folder {
+    display: block;
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
