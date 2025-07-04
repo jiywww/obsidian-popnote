@@ -1117,7 +1117,18 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 
 
 	private async openInCurrentTab(item: PopNoteItem) {
-		const leaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+		let leaf = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf;
+		// If no active markdown view (empty tab), use the most recent leaf
+		if (!leaf) {
+			const mostRecentLeaf = this.app.workspace.getMostRecentLeaf();
+			if (mostRecentLeaf) {
+				leaf = mostRecentLeaf;
+			}
+		}
+		// If still no leaf, get one
+		if (!leaf) {
+			leaf = this.app.workspace.getLeaf();
+		}
 		if (leaf) {
 			await leaf.openFile(item.file);
 			this.close();
