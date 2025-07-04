@@ -327,9 +327,18 @@ export default class PopNotePlugin extends Plugin {
 					}
 				}
 				
+				// Apply window size if needed
+				if (this.settings.windowSizeMode === 'fixed') {
+					// Apply fixed size from settings
+					this.popNoteWindow.setSize(
+						this.settings.defaultWindowWidth,
+						this.settings.defaultWindowHeight
+					);
+				}
+				
 				// Apply window position if needed
 				if (this.settings.windowPosition !== 'last') {
-					// Recalculate position based on current setting
+					// Get current size (may have just been updated)
 					const [width, height] = this.popNoteWindow.getSize();
 					const { x, y } = this.calculateWindowPosition(width, height);
 					this.popNoteWindow.setPosition(x, y);
