@@ -1441,9 +1441,18 @@ class QuickNotesSettingTab extends PluginSettingTab {
 		containerEl.createEl('h3', { text: 'Global Hotkey' });
 		containerEl.createEl('p', { text: 'This hotkey works system-wide, even when Obsidian is not focused.' });
 
-		new Setting(containerEl)
+		const globalHotkeySetting = new Setting(containerEl)
 			.setName('Create/open quick note')
-			.setDesc('Global hotkey to create or open a quick note from anywhere')
+			.setDesc('Global hotkey to create or open a quick note from anywhere. ');
+		
+		// Add link to description
+		const descEl = globalHotkeySetting.descEl;
+		descEl.createEl('a', {
+			text: 'See available modifiers',
+			href: 'https://www.electronjs.org/docs/latest/api/accelerator#available-modifiers'
+		});
+		
+		globalHotkeySetting
 			.addText(text => {
 				text
 					.setPlaceholder('CmdOrCtrl+Shift+N')
