@@ -22,10 +22,15 @@ A powerful Obsidian plugin that enables system-wide quick note creation and mana
 - **Sort Options**: Order notes by creation time or last modified time
 
 ### Quick Notes Picker
-- **Visual note browser** with search functionality
+- **Native Obsidian interface** using the built-in fuzzy search modal
+- **Keyboard-driven workflow** with configurable shortcuts:
+  - `Enter`: Open in current tab
+  - `Cmd/Ctrl+Enter`: Open in new tab (configurable)
+  - `Opt/Alt+Enter`: Open in new window (configurable)
+  - `Cmd/Ctrl+P`: Pin/unpin note (configurable)
+  - `Cmd/Ctrl+D`: Delete note (configurable)
 - **Pin important notes** to keep them at the top of the list
-- **Batch operations**: Delete or organize multiple notes at once
-- **Dual opening modes**: Open in current tab or new popup window
+- **Smart sorting**: Pinned notes appear first, followed by others in your preferred order
 
 ### Smart Window Behavior
 - **Three window management modes**:
@@ -66,6 +71,9 @@ A powerful Obsidian plugin that enables system-wide quick note creation and mana
   - Quick Notes: Navigate to previous quick note
   - Quick Notes: Navigate to next quick note
   - Quick Notes: Show quick notes picker
+- **Picker shortcuts**: Customize keyboard shortcuts within the picker:
+  - Pin/unpin, delete, open in new tab/window
+  - Configure in plugin settings under "Quick Notes Picker Shortcuts"
 
 ## Usage
 
@@ -80,8 +88,11 @@ A powerful Obsidian plugin that enables system-wide quick note creation and mana
 - Use the picker (`Ctrl/Cmd+Shift+P`) for visual browsing
 
 ### Managing Notes
-- Pin frequently used notes to keep them accessible
-- Use the picker to delete old notes
+- Use the Quick Notes Picker (`Cmd/Ctrl+Shift+P`) for a native Obsidian experience
+- Navigate with arrow keys and use Enter to open in current tab
+- Pin frequently used notes with your configured shortcut (default: `Cmd/Ctrl+P`)
+- Delete notes quickly with your configured shortcut (default: `Cmd/Ctrl+D`)
+- Open in new tab (`Cmd/Ctrl+Enter`) or new window (`Opt/Alt+Enter`)
 - Quick notes follow your vault's normal sync and backup rules
 
 ## Tips & Tricks
