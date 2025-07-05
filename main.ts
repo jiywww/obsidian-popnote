@@ -413,6 +413,12 @@ export default class PopNotePlugin extends Plugin {
 					this.debugLog('App will-quit event triggered - final cleanup');
 					this.cleanupPopNoteWindows();
 				});
+				
+				// Listen for app activation (when dock icon is clicked on macOS)
+				app.on('activate', () => {
+					this.debugLog('App activate event triggered (dock icon clicked)');
+					this.handleAppActivate();
+				});
 			}
 			
 			// Setup main window tracking
@@ -609,6 +615,68 @@ export default class PopNotePlugin extends Plugin {
 			}
 		} catch (error) {
 			this.debugError('Error in closeAllPopNoteWindowsForVault:', error);
+		}
+	}
+	
+	private handleAppActivate() {
+		// This is called when the dock icon is clicked on macOS
+		this.debugLog('handleAppActivate called - checking window states');
+		
+		try {
+			const allWindows = BrowserWindow.getAllWindows();
+			this.debugLog(`Found ${allWindows.length} total windows`);
+			
+			// Find the main window (not PopNote)
+			const mainWindow = allWindows.find((w: any) => {
+				if (w.isDestroyed()) return false;
+				
+				// Check if this is NOT a PopNote window
+				const windowAny = w as any;
+				if (windowAny.isPopNote === true) {
+					this.debugLog(`Window ${w.id} is a PopNote window, skipping`);
+					return false;
+				}
+				
+				this.debugLog(`Window ${w.id} is a potential main window`);
+				return true;
+			});
+			
+			if (mainWindow) {
+				this.debugLog(`Found main window with ID: ${mainWindow.id}, minimized: ${mainWindow.isMinimized()}, visible: ${mainWindow.isVisible()}`);
+				
+				// If the main window is minimized, restore it
+				if (mainWindow.isMinimized()) {
+					this.debugLog('Main window is minimized, restoring...');
+					mainWindow.restore();
+				}
+				
+				// If the main window is not visible, show it
+				if (!mainWindow.isVisible()) {
+					this.debugLog('Main window is not visible, showing...');
+					mainWindow.show();
+				}
+				
+				// Focus the main window
+				this.debugLog('Focusing main window...');
+				mainWindow.focus();
+			} else {
+				this.debugLog('No main window found during app activation');
+				
+				// If no main window exists and only PopNote windows exist,
+				// we might need to create a new main window or notify the user
+				const hasOnlyPopNoteWindows = allWindows.every((w: any) => {
+					const windowAny = w as any;
+					return windowAny.isPopNote === true || w.isDestroyed();
+				});
+				
+				if (hasOnlyPopNoteWindows && allWindows.length > 0) {
+					this.debugLog('Only PopNote windows exist, cannot restore main window');
+					// The main window might have been closed unexpectedly
+					// In this case, Obsidian should handle creating a new main window
+				}
+			}
+		} catch (error) {
+			this.debugError('Error in handleAppActivate:', error);
 		}
 	}
 	
