@@ -983,19 +983,28 @@ export default class PopNotePlugin extends Plugin {
 		}
 
 		// Window exists, just open the file
-		// Find all workspace items that might be our window
-		const workspaceItems = (this.app.workspace as any).floatingSplit?.children || [];
-		for (const item of workspaceItems) {
-			if (item.win === this.popNoteWindow) {
-				// Found our window's workspace, get a leaf and open file
-				const leaf = item.getLeaf();
-				if (leaf) {
-					await leaf.openFile(file);
-					this.currentFile = file;
-					// Restore cursor position if available
-					await this.restoreCursorPosition(file);
+		// First try to use the stored popNoteLeaf if it exists
+		if (this.popNoteLeaf && !this.popNoteLeaf.detached) {
+			await this.popNoteLeaf.openFile(file);
+			this.currentFile = file;
+			// Restore cursor position if available
+			await this.restoreCursorPosition(file);
+		} else {
+			// Find all workspace items that might be our window
+			const workspaceItems = (this.app.workspace as any).floatingSplit?.children || [];
+			for (const item of workspaceItems) {
+				if (item.win === this.popNoteWindow) {
+					// Found our window's workspace, get a leaf and open file
+					const leaf = item.getLeaf();
+					if (leaf) {
+						this.popNoteLeaf = leaf; // Update the leaf reference
+						await leaf.openFile(file);
+						this.currentFile = file;
+						// Restore cursor position if available
+						await this.restoreCursorPosition(file);
+					}
+					break;
 				}
-				break;
 			}
 		}
 
@@ -1482,12 +1491,37 @@ export default class PopNotePlugin extends Plugin {
 
 		await this.saveSettings();
 
-		// If the deleted file is currently displayed, hide the window
+		// If the deleted file is currently displayed, switch to next note in list
 		if (this.currentFile && this.currentFile.path === file.path) {
-			if (this.popNoteWindow && !this.popNoteWindow.isDestroyed()) {
-				this.popNoteWindow.hide();
+			// Get all popnotes sorted
+			const allNotes = await this.getPopNotesSorted();
+			
+			// Find the index of the current note
+			const currentIndex = allNotes.findIndex(note => note.path === file.path);
+			
+			if (currentIndex !== -1 && allNotes.length > 1) {
+				// Determine which note to switch to
+				let targetNote: TFile | null = null;
+				
+				if (currentIndex < allNotes.length - 1) {
+					// If not the last note, switch to the next one
+					targetNote = allNotes[currentIndex + 1];
+				} else if (currentIndex > 0) {
+					// If it's the last note, switch to the previous one
+					targetNote = allNotes[currentIndex - 1];
+				}
+				
+				// Switch to the target note if found
+				if (targetNote) {
+					await this.showPopNoteWindow(targetNote);
+				}
+			} else {
+				// No notes left or only one note, hide the window
+				if (this.popNoteWindow && !this.popNoteWindow.isDestroyed()) {
+					this.popNoteWindow.hide();
+				}
+				this.currentFile = null;
 			}
-			this.currentFile = null;
 		}
 
 		// Delete the file
