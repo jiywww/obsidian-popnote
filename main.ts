@@ -1945,6 +1945,16 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 				text: `Are you sure you want to delete "${noteName}"?`
 			});
 
+			// Add instructions text before the buttons
+			const instructionsEl = modal.contentEl.createEl('p', {
+				text: 'Press Enter to confirm, Esc to cancel',
+				cls: 'setting-item-description'
+			});
+			instructionsEl.style.marginTop = '10px';
+			instructionsEl.style.marginBottom = '15px';
+			instructionsEl.style.fontSize = '0.9em';
+			instructionsEl.style.color = 'var(--text-muted)';
+
 			const buttonContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
 
 			const cancelButton = buttonContainer.createEl('button', { text: 'Cancel' });
@@ -1984,14 +1994,6 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 					handleKeydown(evt);
 				}
 			};
-			
-			// Add instructions text
-			const instructionsEl = modal.contentEl.createEl('p', {
-				text: 'Press Enter to confirm, Esc to cancel',
-				cls: 'setting-item-description'
-			});
-			instructionsEl.style.marginTop = '10px';
-			instructionsEl.style.fontSize = '0.9em';
 
 			// Register event handlers
 			modal.modalEl.addEventListener('keydown', handleKeydown);
