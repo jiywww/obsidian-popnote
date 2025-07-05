@@ -2,7 +2,7 @@ import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, 
 
 // Access Electron APIs
 const { remote } = require('electron');
-const { globalShortcut, BrowserWindow, getCurrentWindow, app } = remote;
+const { globalShortcut, BrowserWindow, getCurrentWindow } = remote;
 
 interface PopNoteSettings {
 	popNotesFolder: string;
@@ -14,7 +14,6 @@ interface PopNoteSettings {
 	defaultWindowWidth: number;
 	defaultWindowHeight: number;
 	pinnedNotes: string[]; // Array of note paths
-	autoMinimizeMode: 'off' | 'dynamic' | 'always'; // How to handle main window when closing pop notes
 	windowSizeMode: 'fixed' | 'remember'; // Whether to use fixed size or remember last used size
 	lastUsedWindowSize: {
 		width: number;
@@ -23,12 +22,30 @@ interface PopNoteSettings {
 	lastCreatedNote: {
 		path: string;
 		timestamp: number;
+		fileId?: string; // ctime as string
 	} | null;
 	// Picker keyboard shortcuts
 	pickerPinShortcut: string;
 	pickerDeleteShortcut: string;
 	pickerOpenInNewTabShortcut: string;
 	pickerOpenInNewWindowShortcut: string;
+	// Always-on-top settings
+	alwaysOnTop: boolean;
+	windowLevel: 'screen-saver' | 'normal';
+	visibleOnAllWorkspaces: boolean;
+	// Cursor position settings
+	cursorPosition: 'start' | 'end' | 'last';
+	cursorPositions: { [filePath: string]: { line: number; ch: number } };
+	// Window position settings
+	windowPosition: 'center' | 'left' | 'right' | 'last';
+	lastWindowPosition: { x: number; y: number } | null;
+	// File tracking system
+	fileTracking: {
+		fileIdToPath: { [ctime: string]: string };
+		pathToFileId: { [filePath: string]: string };
+	};
+	// Debug mode
+	debugMode: boolean;
 }
 
 const DEFAULT_SETTINGS: PopNoteSettings = {
@@ -41,7 +58,6 @@ const DEFAULT_SETTINGS: PopNoteSettings = {
 	defaultWindowWidth: 800,
 	defaultWindowHeight: 600,
 	pinnedNotes: [],
-	autoMinimizeMode: 'dynamic',
 	windowSizeMode: 'fixed',
 	lastUsedWindowSize: null,
 	lastCreatedNote: null,
@@ -49,7 +65,24 @@ const DEFAULT_SETTINGS: PopNoteSettings = {
 	pickerPinShortcut: 'Mod+P',
 	pickerDeleteShortcut: 'Mod+D',
 	pickerOpenInNewTabShortcut: 'Mod+Enter',
-	pickerOpenInNewWindowShortcut: 'Alt+Enter'
+	pickerOpenInNewWindowShortcut: 'Alt+Enter',
+	// Always-on-top settings
+	alwaysOnTop: false,
+	windowLevel: 'screen-saver',
+	visibleOnAllWorkspaces: false,
+	// Cursor position settings
+	cursorPosition: 'start',
+	cursorPositions: {},
+	// Window position settings
+	windowPosition: 'center',
+	lastWindowPosition: null,
+	// File tracking system
+	fileTracking: {
+		fileIdToPath: {},
+		pathToFileId: {}
+	},
+	// Debug mode
+	debugMode: false
 }
 
 // Modal for selecting template files
@@ -72,7 +105,7 @@ class TemplateFileSelectorModal extends FuzzySuggestModal<TFile> {
 		return file.path;
 	}
 
-	onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent): void {
+	onChooseItem(file: TFile): void {
 		this.onSelect(file);
 	}
 }
@@ -80,38 +113,67 @@ class TemplateFileSelectorModal extends FuzzySuggestModal<TFile> {
 export default class PopNotePlugin extends Plugin {
 	settings: PopNoteSettings;
 	private registeredHotkeys: string[] = [];
-	private openWindows: Map<string, any> = new Map();
+	private popNoteWindow: any = null; // Single PopNote window
+	private popNoteLeaf: any = null; // Store the leaf reference
+	private currentFile: TFile | null = null; // Currently displayed file
 	private lastNavigationTimestamp: number = 0;
 	private shouldCreateNewNote: boolean = false;
-	private popNoteWindowIds: Set<number> = new Set();
-	private minimizeScheduled: boolean = false;
-	private mainWindowVisibleBeforePopNote: Map<number, boolean> = new Map();
+	private mainWindowWasVisible: boolean = false;
+	private isStandalone: boolean = false; // Track if PopNote is running alone
 
 	async onload() {
 		await this.loadSettings();
 
 		// Check if globalShortcut is available
 		if (!globalShortcut) {
-			console.error('globalShortcut is not available');
+			this.debugError('globalShortcut is not available');
 			new Notice('PopNote: Global shortcuts are not available. Plugin may not work correctly.');
 		} else {
-			console.log('globalShortcut is available');
+			this.debugLog('globalShortcut is available');
 
 			// Clean up any previously registered hotkeys before registering new ones
 			if (this.settings.createNoteHotkey) {
 				try {
 					if (globalShortcut.isRegistered(this.settings.createNoteHotkey)) {
-						console.log(`Found previously registered hotkey ${this.settings.createNoteHotkey}, cleaning up...`);
+						this.debugLog(`Found previously registered hotkey ${this.settings.createNoteHotkey}, cleaning up...`);
 						globalShortcut.unregister(this.settings.createNoteHotkey);
 					}
 				} catch (error) {
-					console.error('Error cleaning up previous hotkeys:', error);
+					this.debugError('Error cleaning up previous hotkeys:', error);
 				}
 			}
 		}
 
 		// Register all global hotkeys
 		this.registerGlobalHotkeys();
+		
+		// Try to reconnect to existing PopNote windows
+		this.reconnectExistingPopNoteWindows();
+		
+		// Register app quit event handlers to clean up PopNote windows
+		this.debugLog('PopNote plugin loaded, registering app quit handlers');
+		this.registerAppQuitHandlers();
+
+		// Register file rename event listener
+		this.registerEvent(
+			this.app.vault.on('rename', (file, oldPath) => {
+				this.handleFileRename(file as TFile, oldPath);
+			})
+		);
+		
+		// Listen for layout changes to detect window state
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				// Check if main window is closing
+				const allWindows = BrowserWindow.getAllWindows();
+				const visibleWindows = allWindows.filter((w: any) => !w.isDestroyed() && w.isVisible());
+				
+				if (this.popNoteWindow && !this.popNoteWindow.isDestroyed() && 
+					visibleWindows.length === 1 && visibleWindows[0] === this.popNoteWindow) {
+					this.debugLog('Layout change detected with only PopNote visible');
+				}
+			})
+		);
 
 		// Add command for creating pop notes (also accessible from command palette)
 		this.addCommand({
@@ -152,38 +214,46 @@ export default class PopNotePlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new PopNoteSettingTab(this.app, this));
 
-		// Clean up closed windows from our tracking
-		this.registerInterval(
-			window.setInterval(() => {
-				this.cleanupClosedWindows();
-			}, 5000)
-		);
+	}
 
-		// Check for scheduled minimize
-		this.registerInterval(
-			window.setInterval(() => {
-				if (this.minimizeScheduled) {
-					this.checkAndMinimizeMainWindow();
-				}
-			}, 100)
-		);
+	private async debugLog(...args: any[]) {
+		if (this.settings.debugMode) {
+			console.log('[PopNote]', ...args);
+			// Also write to log file
+			const message = args.map(arg => 
+				typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+			).join(' ');
+			await this.writeToLogFile('INFO', message);
+		}
+	}
 
-		// Listen for window close events
-		this.registerEvent(
-			this.app.workspace.on('window-close', (workspaceWindow) => {
-				console.log('Window close event detected');
-				if (this.settings.autoMinimizeMode !== 'off') {
-					// Schedule minimize with a longer delay
-					setTimeout(() => {
-						this.handleMainWindowAfterPopNoteClose();
-					}, 500);
-				}
-			})
-		);
+	private async debugError(...args: any[]) {
+		if (this.settings.debugMode) {
+			console.error('[PopNote]', ...args);
+			// Also write to log file
+			const message = args.map(arg => 
+				typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+			).join(' ');
+			await this.writeToLogFile('ERROR', message);
+		}
+	}
+
+	private async debugWarn(...args: any[]) {
+		if (this.settings.debugMode) {
+			console.warn('[PopNote]', ...args);
+			// Also write to log file
+			const message = args.map(arg => 
+				typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+			).join(' ');
+			await this.writeToLogFile('WARN', message);
+		}
 	}
 
 	onunload() {
-		console.log('PopNote plugin unloading...');
+		this.debugLog('PopNote plugin unloading...');
+
+		// Clean up all PopNote windows
+		this.cleanupPopNoteWindows();
 
 		// Unregister all global hotkeys
 		this.unregisterGlobalHotkeys();
@@ -193,14 +263,14 @@ export default class PopNotePlugin extends Plugin {
 			try {
 				if (globalShortcut.isRegistered(this.settings.createNoteHotkey)) {
 					globalShortcut.unregister(this.settings.createNoteHotkey);
-					console.log(`Extra cleanup: unregistered ${this.settings.createNoteHotkey}`);
+					this.debugLog(`Extra cleanup: unregistered ${this.settings.createNoteHotkey}`);
 				}
 			} catch (error) {
-				console.error('Error in extra cleanup:', error);
+				this.debugError('Error in extra cleanup:', error);
 			}
 		}
 
-		console.log('PopNote plugin unloaded');
+		this.debugLog('PopNote plugin unloaded');
 	}
 
 	async loadSettings() {
@@ -209,6 +279,10 @@ export default class PopNotePlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+	
+	async saveSettingsAndReloadHotkeys() {
+		await this.saveData(this.settings);
 		// Re-register hotkeys when settings change
 		this.unregisterGlobalHotkeys();
 		this.registerGlobalHotkeys();
@@ -216,35 +290,35 @@ export default class PopNotePlugin extends Plugin {
 
 	private registerGlobalHotkeys() {
 		if (!globalShortcut) {
-			console.error('globalShortcut is not available, skipping global hotkey registration');
+			this.debugError('globalShortcut is not available, skipping global hotkey registration');
 			return;
 		}
 
-		console.log('Registering global hotkey for creating PopNotes...');
+		this.debugLog('Registering global hotkey for creating PopNotes...');
 
 		// Only register the create note hotkey globally
 		if (this.settings.createNoteHotkey && this.isValidHotkey(this.settings.createNoteHotkey)) {
 			try {
 				// First check if the hotkey is already registered
 				if (globalShortcut.isRegistered(this.settings.createNoteHotkey)) {
-					console.log(`Hotkey ${this.settings.createNoteHotkey} is already registered, unregistering first...`);
+					this.debugLog(`Hotkey ${this.settings.createNoteHotkey} is already registered, unregistering first...`);
 					globalShortcut.unregister(this.settings.createNoteHotkey);
 				}
 
 				const success = globalShortcut.register(this.settings.createNoteHotkey, () => {
-					console.log('Global create note hotkey triggered');
+					this.debugLog('Global create note hotkey triggered');
 					this.createOrOpenPopNote();
 				});
 
 				if (success) {
 					this.registeredHotkeys.push(this.settings.createNoteHotkey);
-					console.log(`Successfully registered global hotkey: ${this.settings.createNoteHotkey}`);
+					this.debugLog(`Successfully registered global hotkey: ${this.settings.createNoteHotkey}`);
 				} else {
-					console.error(`Failed to register global hotkey: ${this.settings.createNoteHotkey}`);
+					this.debugError(`Failed to register global hotkey: ${this.settings.createNoteHotkey}`);
 					new Notice('Failed to register global hotkey. It may be already in use by another application.');
 				}
 			} catch (error) {
-				console.error(`Error registering global hotkey:`, error);
+				this.debugError(`Error registering global hotkey:`, error);
 				new Notice('Error registering global hotkey. Check console for details.');
 			}
 		}
@@ -271,52 +345,506 @@ export default class PopNotePlugin extends Plugin {
 
 		return hasActualKey;
 	}
+	
+	private reconnectExistingPopNoteWindows() {
+		try {
+			setTimeout(() => {
+				const allWindows = BrowserWindow.getAllWindows();
+				this.debugLog(`Checking for existing PopNote windows. Found ${allWindows.length} total windows`);
+				
+				// Look for PopNote windows by checking their title or other properties
+				for (const window of allWindows) {
+					if (window && !window.isDestroyed()) {
+						try {
+							const title = window.getTitle();
+							// Check if this looks like a PopNote window
+							// PopNote windows typically have titles like "filename.md - vault name"
+							if (title && (title.includes('PopNote') || this.isPopNoteWindowTitle(title))) {
+								// Found a potential PopNote window
+								this.debugLog(`Found potential PopNote window: "${title}", ID: ${window.id}`);
+								
+								// Check if it's not the main window
+								const isMainWindow = allWindows.some((w: any) => 
+									w !== window && w.getTitle && w.getTitle().includes('Obsidian')
+								);
+								
+								if (!isMainWindow || allWindows.length > 1) {
+									this.popNoteWindow = window;
+									this.debugLog(`Reconnected to existing PopNote window ID: ${window.id} (restored from previous session)`);
+									
+									// Try to find the associated leaf
+									const leaves = this.app.workspace.getLeavesOfType('markdown');
+									for (const leaf of leaves) {
+										if ((leaf as any).view?.containerEl?.ownerDocument?.defaultView === window) {
+											this.popNoteLeaf = leaf;
+											this.currentFile = (leaf.view as any).file;
+											this.debugLog(`Found associated leaf and file: ${this.currentFile?.path}`);
+											break;
+										}
+									}
+									
+									// Set up event listeners for this window
+									this.setupWindowEventListeners(window);
+									
+									// Re-apply always-on-top settings
+									if (this.settings.alwaysOnTop) {
+										try {
+											window.setAlwaysOnTop(true, this.settings.windowLevel);
+											this.debugLog(`Applied always-on-top with level: ${this.settings.windowLevel}`);
+											
+											if (process.platform === 'darwin' && this.settings.visibleOnAllWorkspaces) {
+												window.setVisibleOnAllWorkspaces(true, { 
+													visibleOnFullScreen: true 
+												});
+												this.debugLog('Applied visible on all workspaces');
+											}
+										} catch (error) {
+											this.debugLog(`Failed to apply window settings: ${error}`);
+										}
+									}
+									
+									// Set main window visibility state
+									const mainWindow = allWindows.find((w: any) => 
+										w !== window && !w.isDestroyed() && w.isVisible()
+									);
+									this.mainWindowWasVisible = !!mainWindow;
+									this.debugLog(`Main window visible on reconnect: ${this.mainWindowWasVisible}`);
+									
+									// Mark that we've successfully reconnected
+									new Notice('PopNote: Reconnected to previous session window');
+									break;
+								}
+							}
+						} catch (e) {
+							// Window might be destroyed while checking
+							this.debugLog(`Error checking window: ${e}`);
+						}
+					}
+				}
+			}, 1000); // Wait a bit for windows to be ready
+		} catch (error) {
+			this.debugLog(`Error in reconnectExistingPopNoteWindows: ${error}`);
+		}
+	}
+	
+	private isPopNoteWindowTitle(title: string): boolean {
+		// Check if the title matches our PopNote patterns
+		if (!title) return false;
+		
+		// Check against our PopNotes folder
+		if (title.includes(this.settings.popNotesFolder)) return true;
+		
+		// Check against known PopNote patterns
+		const popNotePattern = this.settings.noteNamePattern.replace(/{{date}}/g, '\\d{4}-\\d{2}-\\d{2}')
+			.replace(/{{time}}/g, '\\d{2}-\\d{2}-\\d{2}');
+		const regex = new RegExp(popNotePattern);
+		
+		return regex.test(title);
+	}
+	
+	private registerAppQuitHandlers() {
+		try {
+			const { app } = remote;
+			
+			// Listen for window-all-closed event
+			if (app) {
+				// Before quit event - clean up PopNote windows
+				app.on('before-quit', () => {
+					this.debugLog('App before-quit event triggered - this is a real quit');
+					this.cleanupPopNoteWindows();
+				});
+				
+				// When all windows are closed - on macOS this doesn't quit the app
+				app.on('window-all-closed', () => {
+					this.debugLog('All windows closed event triggered');
+					// On macOS, don't clean up here as the app stays running
+					if (process.platform !== 'darwin') {
+						this.cleanupPopNoteWindows();
+					}
+				});
+				
+				// Also listen for will-quit event
+				app.on('will-quit', () => {
+					this.debugLog('App will-quit event triggered - final cleanup');
+					this.cleanupPopNoteWindows();
+				});
+			}
+			
+			// First, let's log initial state
+			this.debugLog('Setting up window tracking...');
+			
+			// Try to find and track the main window immediately
+			setTimeout(() => {
+				const allWindows = BrowserWindow.getAllWindows();
+				this.debugLog(`Initial window scan: Found ${allWindows.length} windows`);
+				
+				const mainWindow = allWindows.find((w: any) => 
+					w !== this.popNoteWindow && !w.isDestroyed()
+				);
+				
+				if (mainWindow) {
+					this.debugLog(`Found main window with ID: ${mainWindow.id}`);
+					
+					// Watch for main window being closed
+					mainWindow.on('close', () => {
+						this.debugLog('Main window close event fired!');
+						// Don't clean up PopNote - let it run standalone
+						this.isStandalone = true;
+					});
+					
+					// Watch for main window being hidden
+					mainWindow.on('hide', () => {
+						this.debugLog('Main window hide event fired!');
+					});
+					
+					// Watch for blur event (losing focus)
+					mainWindow.on('blur', () => {
+						this.debugLog('Main window blur event fired!');
+					});
+				} else {
+					this.debugLog('Could not find main window!');
+				}
+			}, 2000);
+			
+			// Also set up periodic check as backup
+			let checkCount = 0;
+			const checkInterval = window.setInterval(() => {
+				try {
+					checkCount++;
+					const allWindows = BrowserWindow.getAllWindows();
+					const visibleWindows = allWindows.filter((w: any) => !w.isDestroyed() && w.isVisible());
+					
+					// Log every 10 checks to avoid spam
+					if (checkCount % 10 === 0) {
+						this.debugLog(`Periodic check #${checkCount}: Total windows: ${allWindows.length}, Visible: ${visibleWindows.length}`);
+					}
+					
+					// Check if only PopNote window is visible (main window hidden/closed)
+					if (this.popNoteWindow && !this.popNoteWindow.isDestroyed()) {
+						const mainWindowVisible = visibleWindows.some((w: any) => 
+							w !== this.popNoteWindow && w.isVisible()
+						);
+						
+						// Check if we're alone - either only window or only visible window
+						const onlyPopNoteVisible = !mainWindowVisible && visibleWindows.length === 1 && visibleWindows[0] === this.popNoteWindow;
+						const onlyPopNoteExists = allWindows.length === 1 && allWindows[0] === this.popNoteWindow;
+						
+						if (onlyPopNoteVisible || onlyPopNoteExists) {
+							// PopNote is alone, but let's not close it automatically
+							// Instead, just log this state
+							if (checkCount % 10 === 0) {
+								this.debugLog(`PopNote running standalone. Total windows: ${allWindows.length}, Visible: ${visibleWindows.length}`);
+							}
+							
+							// Mark that we're in standalone mode
+							if (!this.isStandalone) {
+								this.isStandalone = true;
+								this.debugLog('PopNote entered standalone mode');
+							}
+						} else if (this.isStandalone && mainWindowVisible) {
+							// Main window is back, we're no longer standalone
+							this.isStandalone = false;
+							this.debugLog('PopNote exited standalone mode - main window returned');
+						}
+					}
+				} catch (error) {
+					this.debugError('Error in window visibility check:', error);
+				}
+			}, 1000); // Check every second
+			
+			// Store the interval ID so we can clear it on unload
+			this.registerInterval(checkInterval);
+			
+		} catch (error) {
+			this.debugError('Error registering app quit handlers:', error);
+		}
+	}
+	
+	private cleanupPopNoteWindows() {
+		this.debugLog('cleanupPopNoteWindows called - cleaning up PopNote windows...');
+		
+		// Try to detach the leaf first if we have a reference
+		if (this.popNoteLeaf) {
+			try {
+				this.debugLog('Detaching PopNote leaf');
+				this.popNoteLeaf.detach();
+				this.popNoteLeaf = null;
+			} catch (leafError) {
+				this.debugLog(`Error detaching leaf: ${leafError}`);
+			}
+		}
+		
+		// Close the main PopNote window if it exists
+		if (this.popNoteWindow && !this.popNoteWindow.isDestroyed()) {
+			this.debugLog(`Closing PopNote window, window ID: ${this.popNoteWindow.id}`);
+			try {
+				// First hide the window
+				this.popNoteWindow.hide();
+				this.debugLog('PopNote window hidden');
+				
+				// Remove all listeners to prevent any interference
+				this.popNoteWindow.removeAllListeners();
+				
+				// Try to close via Obsidian's workspace API first
+				try {
+					// Get all workspace containers
+					const containers = (this.app.workspace as any).rootSplit?.children || [];
+					this.debugLog(`Checking ${containers.length} workspace containers`);
+					
+					// Also check floating splits
+					const floatingContainers = (this.app.workspace as any).floatingSplit?.children || [];
+					this.debugLog(`Found ${floatingContainers.length} floating containers`);
+					
+					// Search in all containers
+					const allContainers = [...containers, ...floatingContainers];
+					for (const container of allContainers) {
+						if (container.win === this.popNoteWindow || 
+							(container as any).containerEl?.win === this.popNoteWindow) {
+							this.debugLog('Found workspace container, closing via Obsidian API');
+							if (typeof container.close === 'function') {
+								container.close();
+							} else if (typeof container.detach === 'function') {
+								container.detach();
+							}
+							break;
+						}
+					}
+				} catch (wsError) {
+					this.debugLog(`Error closing via workspace API: ${wsError}`);
+				}
+				
+				// Close the workspace leaf if it exists
+				const leaves = this.app.workspace.getLeavesOfType('markdown');
+				for (const leaf of leaves) {
+					// Check if this leaf is in our popnote window
+					if ((leaf as any).view?.containerEl?.ownerDocument?.defaultView === this.popNoteWindow) {
+						this.debugLog('Found and detaching leaf from PopNote window');
+						leaf.detach();
+					}
+				}
+				
+				// Now destroy the window
+				this.popNoteWindow.destroy();
+				this.debugLog('PopNote window destroyed successfully');
+			} catch (error) {
+				this.debugError('Error destroying PopNote window:', error);
+				// Try alternative close method
+				try {
+					this.popNoteWindow.close();
+					this.debugLog('PopNote window closed using close() method');
+				} catch (closeError) {
+					this.debugError('Error closing PopNote window:', closeError);
+				}
+			}
+			this.popNoteWindow = null;
+			this.currentFile = null;
+		} else {
+			this.debugLog('No PopNote window to clean up or already destroyed');
+		}
+	}
+	
+	private async writeToLogFile(level: string, message: string) {
+		// Don't check debug mode here - it's already checked in the calling methods
+		try {
+			const logFile = ".obsidian/plugins/popnote/popnote.log";
+			const timestamp = new Date().toISOString();
+			const logEntry = `[${timestamp}] [${level}] ${message}\n`;
+			
+			// Ensure the plugin directory exists
+			const pluginDir = ".obsidian/plugins/popnote";
+			try {
+				await this.app.vault.adapter.mkdir(pluginDir);
+			} catch (e) {
+				// Directory might already exist
+			}
+			
+			// Append to log file
+			try {
+				const existingContent = await this.app.vault.adapter.read(logFile);
+				// Check file size - if over 1MB, truncate to last 500KB
+				if (existingContent.length > 1024 * 1024) {
+					const truncatedContent = existingContent.slice(-512 * 1024);
+					await this.app.vault.adapter.write(logFile, truncatedContent + logEntry);
+				} else {
+					await this.app.vault.adapter.write(logFile, existingContent + logEntry);
+				}
+			} catch (e) {
+				// File doesn't exist, create it
+				await this.app.vault.adapter.write(logFile, logEntry);
+			}
+		} catch (error) {
+			// Can't use debugError here to avoid infinite loop
+			console.error('[PopNote] Failed to write to log file:', error);
+		}
+	}
 
 	private unregisterGlobalHotkeys() {
 		if (!globalShortcut) {
-			console.log('globalShortcut not available, skipping unregister');
+			this.debugLog('globalShortcut not available, skipping unregister');
 			return;
 		}
 
-		console.log('Unregistering global hotkeys...');
+		this.debugLog('Unregistering global hotkeys...');
 		this.registeredHotkeys.forEach(hotkey => {
 			try {
 				if (globalShortcut.isRegistered(hotkey)) {
 					globalShortcut.unregister(hotkey);
-					console.log(`Successfully unregistered hotkey: ${hotkey}`);
+					this.debugLog(`Successfully unregistered hotkey: ${hotkey}`);
 				} else {
-					console.log(`Hotkey ${hotkey} was not registered`);
+					this.debugLog(`Hotkey ${hotkey} was not registered`);
 				}
 			} catch (error) {
-				console.error(`Failed to unregister hotkey ${hotkey}:`, error);
+				this.debugError(`Failed to unregister hotkey ${hotkey}:`, error);
 			}
 		});
 		this.registeredHotkeys = [];
 	}
 
 	async createOrOpenPopNote() {
-		console.log('createOrOpenPopNote called');
+		this.debugLog('createOrOpenPopNote called');
+		
+		// Check if we're still trying to reconnect
+		if (!this.popNoteWindow) {
+			// Give reconnection a chance to work
+			await new Promise(resolve => setTimeout(resolve, 100));
+		}
 
+		// Smart handling for single window mode
+		if (this.popNoteWindow && !this.popNoteWindow.isDestroyed()) {
+			this.debugLog(`PopNote window exists, ID: ${this.popNoteWindow.id}`);
+			// Window exists
+			if (this.popNoteWindow.isVisible()) {
+				// Window is visible, hide it
+				this.debugLog(`Hiding PopNote window with ID: ${this.popNoteWindow.id}`);
+				// Save cursor position before hiding
+				await this.saveCursorPosition();
+				this.popNoteWindow.hide();
+				return;
+			} else {
+				// Window is hidden, check if we need a new note
+				const shouldReuseNote = this.shouldReuseLastNote();
+				this.debugLog('Window hidden, should reuse note:', shouldReuseNote);
+				
+				// Update main window visibility state before showing
+				const allWindows = BrowserWindow.getAllWindows();
+				const mainWindow = allWindows.find((w: any) => 
+					w !== this.popNoteWindow && !w.isDestroyed() && w.isVisible()
+				);
+				this.mainWindowWasVisible = !!mainWindow;
+				this.debugLog(`Main window visible before unhide: ${this.mainWindowWasVisible}`);
+				
+				// Update leaf reference
+				const leaves = this.app.workspace.getLeavesOfType('markdown');
+				for (const leaf of leaves) {
+					// Check if this leaf is in our popnote window
+					if ((leaf as any).view?.containerEl?.ownerDocument?.defaultView === this.popNoteWindow) {
+						this.popNoteLeaf = leaf;
+						this.debugLog('Updated popNoteLeaf reference on window unhide');
+						break;
+					}
+				}
+				
+				if (!shouldReuseNote) {
+					// Buffer time expired or set to 'none', create new note
+					const noteFile = await this.createNewPopNote();
+					// Open the new note in the existing window
+					if (this.popNoteLeaf) {
+						await this.popNoteLeaf.openFile(noteFile);
+						this.currentFile = noteFile;
+					}
+				}
+				
+				// Apply window size if needed
+				if (this.settings.windowSizeMode === 'fixed') {
+					// Apply fixed size from settings
+					this.popNoteWindow.setSize(
+						this.settings.defaultWindowWidth,
+						this.settings.defaultWindowHeight
+					);
+				}
+				
+				// Apply window position if needed
+				if (this.settings.windowPosition !== 'last') {
+					// Get current size (may have just been updated)
+					const [width, height] = this.popNoteWindow.getSize();
+					const { x, y } = this.calculateWindowPosition(width, height);
+					this.popNoteWindow.setPosition(x, y);
+				}
+				
+				// Re-apply always-on-top settings before showing (may be lost during hide)
+				if (this.settings.alwaysOnTop) {
+					try {
+						this.popNoteWindow.setAlwaysOnTop(true, this.settings.windowLevel);
+						
+						if (process.platform === 'darwin' && this.settings.visibleOnAllWorkspaces) {
+							this.popNoteWindow.setVisibleOnAllWorkspaces(true, { 
+								visibleOnFullScreen: true 
+							});
+						}
+					} catch (error) {
+						this.debugError('Failed to re-apply always-on-top settings:', error);
+					}
+				}
+				
+				// Show the window
+				this.debugLog(`Showing PopNote window with ID: ${this.popNoteWindow.id}`);
+				
+				// On macOS, use showInactive first to avoid space switching
+				if (process.platform === 'darwin') {
+					this.popNoteWindow.showInactive();
+					// Small delay before focus to ensure window is properly shown
+					setTimeout(() => {
+						if (this.popNoteWindow && !this.popNoteWindow.isDestroyed()) {
+							this.popNoteWindow.focus();
+						}
+					}, 50);
+				} else {
+					this.popNoteWindow.show();
+					this.popNoteWindow.focus();
+				}
+				
+				// Restore cursor position for current file
+				if (this.currentFile) {
+					await this.restoreCursorPosition(this.currentFile);
+				}
+				
+				return;
+			}
+		}
+
+		// No window exists, create one
 		// Check buffer time logic
 		const shouldReuseNote = this.shouldReuseLastNote();
-		console.log('Should reuse note:', shouldReuseNote);
+		this.debugLog('Should reuse note:', shouldReuseNote);
 
 		let noteFile: TFile;
 		if (shouldReuseNote && this.settings.lastCreatedNote) {
-			// Try to find the existing note
-			const existingFile = this.app.vault.getAbstractFileByPath(this.settings.lastCreatedNote.path);
-			if (existingFile && existingFile instanceof TFile) {
-				noteFile = existingFile;
+			// Try to find the existing note using file tracking
+			const resolvedFile = await this.resolveFile(this.settings.lastCreatedNote.path);
+			if (resolvedFile) {
+				noteFile = resolvedFile;
+			} else if (this.settings.lastCreatedNote.fileId) {
+				// Try to resolve by file ID
+				const resolvedById = await this.resolveFile(this.settings.lastCreatedNote.fileId);
+				if (resolvedById) {
+					noteFile = resolvedById;
+					// Update the path in settings
+					this.settings.lastCreatedNote.path = resolvedById.path;
+					await this.saveSettings();
+				} else {
+					// If note doesn't exist anymore, create new one
+					noteFile = await this.createNewPopNote();
+				}
 			} else {
-				// If note doesn't exist anymore, create new one
+				// No file ID, create new note
 				noteFile = await this.createNewPopNote();
 			}
 		} else {
 			noteFile = await this.createNewPopNote();
 		}
 
-		// Open in new window
-		await this.openNoteInNewWindow(noteFile);
+		// Create new window with the note
+		await this.showPopNoteWindow(noteFile);
 	}
 
 	private shouldReuseLastNote(): boolean {
@@ -355,13 +883,13 @@ export default class PopNotePlugin extends Plugin {
 					content = await this.app.vault.read(templateFile);
 					// Process template variables
 					content = this.processTemplate(content);
-					console.log('Template applied successfully from:', normalizedTemplatePath);
+					this.debugLog('Template applied successfully from:', normalizedTemplatePath);
 				} catch (error) {
-					console.error('Error reading template file:', error);
+					this.debugError('Error reading template file:', error);
 					new Notice(`Failed to read template file: ${this.settings.templateFile}`);
 				}
 			} else {
-				console.warn('Template file not found:', normalizedTemplatePath);
+				this.debugWarn('Template file not found:', normalizedTemplatePath);
 				// Don't show notice for empty template setting
 				if (this.settings.templateFile.trim()) {
 					new Notice(`Template file not found: ${this.settings.templateFile}`);
@@ -372,10 +900,14 @@ export default class PopNotePlugin extends Plugin {
 		// Create the note
 		const noteFile = await this.app.vault.create(notePath, content);
 
-		// Update last created note
+		// Update file tracking
+		this.updateFileTracking(noteFile);
+
+		// Update last created note with file ID
 		this.settings.lastCreatedNote = {
 			path: noteFile.path,
-			timestamp: Date.now()
+			timestamp: Date.now(),
+			fileId: String(noteFile.stat.ctime)
 		};
 		await this.saveSettings();
 
@@ -429,134 +961,330 @@ export default class PopNotePlugin extends Plugin {
 		return processed;
 	}
 
-	async openNoteInNewWindow(file: TFile) {
-		// Check if file is already open in a window
-		const existingWindow = this.openWindows.get(file.path);
-		if (existingWindow && !existingWindow.isDestroyed()) {
-			existingWindow.focus();
+	async showPopNoteWindow(file: TFile) {
+		// Update file tracking when opening
+		this.updateFileTracking(file);
+		
+		// Save cursor position for current file if switching
+		if (this.currentFile && this.currentFile !== file) {
+			this.debugLog(`Switching from ${this.currentFile.path} to ${file.path}, saving cursor position`);
+			await this.saveCursorPosition();
+		}
+
+		// If window doesn't exist, create it and open file
+		if (!this.popNoteWindow || this.popNoteWindow.isDestroyed()) {
+			const leaf = await this.createPopNoteWindowWithFile(file);
+			if (leaf) {
+				this.currentFile = file;
+				// Restore cursor position if available
+				await this.restoreCursorPosition(file);
+			}
 			return;
 		}
 
-		// Record main window visibility before creating popout
-		let mainWindowVisible = false;
-		try {
-			const allWindows = BrowserWindow.getAllWindows();
-			const mainWindow = allWindows.find((w: any) =>
-				!w.isDestroyed() &&
-				!this.popNoteWindowIds.has(w.id) &&
-				w.isVisible()
-			);
-			mainWindowVisible = !!mainWindow;
-			console.log('Main window visible before PopNote:', mainWindowVisible);
-		} catch (error) {
-			console.error('Error checking main window visibility:', error);
+		// Window exists, just open the file
+		// Find all workspace items that might be our window
+		const workspaceItems = (this.app.workspace as any).floatingSplit?.children || [];
+		for (const item of workspaceItems) {
+			if (item.win === this.popNoteWindow) {
+				// Found our window's workspace, get a leaf and open file
+				const leaf = item.getLeaf();
+				if (leaf) {
+					await leaf.openFile(file);
+					this.currentFile = file;
+					// Restore cursor position if available
+					await this.restoreCursorPosition(file);
+				}
+				break;
+			}
 		}
 
-		// Determine window size based on settings
+		// Show and focus the window
+		this.popNoteWindow.show();
+		this.popNoteWindow.focus();
+	}
+
+	private async createPopNoteWindowWithFile(file: TFile) {
+		// Record main window visibility
+		this.mainWindowWasVisible = false;
+		try {
+			const allWindows = BrowserWindow.getAllWindows();
+			const mainWindow = allWindows.find((w: any) => 
+				!w.isDestroyed() && 
+				w !== this.popNoteWindow &&
+				w.isVisible()
+			);
+			this.mainWindowWasVisible = !!mainWindow;
+		} catch (error) {
+			this.debugError('Error checking main window visibility:', error);
+		}
+
+		// Determine window size
 		let width: number;
 		let height: number;
-
+		
 		if (this.settings.windowSizeMode === 'remember' && this.settings.lastUsedWindowSize) {
-			// Use last remembered size
 			width = this.settings.lastUsedWindowSize.width;
 			height = this.settings.lastUsedWindowSize.height;
 		} else {
-			// Use default fixed size
 			width = this.settings.defaultWindowWidth;
 			height = this.settings.defaultWindowHeight;
 		}
 
-		// Create new popout window with specified size
+		// Determine window position
+		const position = this.calculateWindowPosition(width, height);
+
+		// Create window data
 		const windowData = {
-			size: {
-				width: width,
-				height: height
-			}
+			size: { width, height },
+			x: position.x,
+			y: position.y
 		};
+
+		// Store current windows before creating new one
+		const windowsBefore = BrowserWindow.getAllWindows();
+		
+		// Create new popout window and open file immediately
 		const leaf = this.app.workspace.openPopoutLeaf(windowData);
-
-		// Open the file
+		this.popNoteLeaf = leaf; // Store the leaf reference
 		await leaf.openFile(file);
-
-		// Track the window and set up auto-minimize
+		
+		// Wait for window to be created and track it
 		setTimeout(() => {
 			try {
-				// Get all windows and find the newest one
 				const allWindows = BrowserWindow.getAllWindows();
-				console.log('All windows count:', allWindows.length);
+				// Find the new window by comparing with windows before
+				let newWindow = null;
+				
+				for (const window of allWindows) {
+					if (!windowsBefore.includes(window) && !window.isDestroyed()) {
+						newWindow = window;
+						break;
+					}
+				}
+				
+				if (newWindow) {
+					this.popNoteWindow = newWindow;
+					this.debugLog(`Created PopNote window with ID: ${newWindow.id}`);
 
-				// Find the newest window (should be the popout)
-				let newWindow: any = null;
-
-				// First try to find a window that's not the main window
-				for (let i = allWindows.length - 1; i >= 0; i--) {
-					const w = allWindows[i];
-					if (!w.isDestroyed()) {
-						const url = w.webContents.getURL();
-						console.log(`Window ${i} URL:`, url);
-
-						// Popout windows often have about:blank URL initially
-						if (url === 'about:blank' || (url && !url.includes('index.html'))) {
-							newWindow = w;
-							break;
+					// Apply always-on-top settings
+					if (this.settings.alwaysOnTop) {
+						try {
+							newWindow.setAlwaysOnTop(true, this.settings.windowLevel);
+							
+							if (process.platform === 'darwin' && this.settings.visibleOnAllWorkspaces) {
+								newWindow.setVisibleOnAllWorkspaces(true, { 
+									visibleOnFullScreen: true 
+								});
+							}
+						} catch (error) {
+							this.debugError('Failed to set always-on-top:', error);
 						}
 					}
-				}
 
-				// Fallback to the last window
-				if (!newWindow) {
-					newWindow = allWindows[allWindows.length - 1];
-				}
-
-				if (newWindow) {
-					this.openWindows.set(file.path, newWindow);
-					this.popNoteWindowIds.add(newWindow.id);
-					this.mainWindowVisibleBeforePopNote.set(newWindow.id, mainWindowVisible);
-					console.log('Tracked PopNote window:', file.path, 'ID:', newWindow.id);
-
-					// Add resize listener if in remember mode
-					if (this.settings.windowSizeMode === 'remember') {
-						newWindow.on('resize', () => {
-							const [newWidth, newHeight] = newWindow.getSize();
-							this.settings.lastUsedWindowSize = {
-								width: newWidth,
-								height: newHeight
-							};
-							this.saveSettings();
-							console.log(`Saved new window size: ${newWidth}x${newHeight}`);
-						});
-					}
-
-					// Use 'close' event instead of 'closed'
-					newWindow.on('close', () => {
-						console.log('PopNote window closing, setting up auto-minimize...');
-						const wasMainWindowVisible = this.mainWindowVisibleBeforePopNote.get(newWindow.id) || false;
-
-						this.popNoteWindowIds.delete(newWindow.id);
-						this.openWindows.delete(file.path);
-						this.mainWindowVisibleBeforePopNote.delete(newWindow.id);
-
-						// Handle main window based on settings and previous state
-						this.scheduleMainWindowMinimize(wasMainWindowVisible);
-					});
-				} else {
-					console.log('Could not find new window to track');
+					// Add window event listeners
+					this.setupWindowEventListeners(newWindow);
 				}
 			} catch (error) {
-				console.error('Failed to track window:', error);
+				this.debugError('Failed to track window:', error);
 			}
-		}, 500); // Increased delay to ensure window is created
+		}, 500);
+
+		return leaf;
 	}
 
-	private navigateNote(direction: 'previous' | 'next') {
-		console.log('navigateNote called:', direction);
 
-		// Find current note from window
-		const currentPath = this.getCurrentNotePathFromWindow();
-		if (!currentPath) {
-			console.log('No current note found');
+	private calculateWindowPosition(width: number, height: number): { x: number; y: number } {
+		// Get screen dimensions
+		const { screen } = require('electron').remote;
+		const display = screen.getPrimaryDisplay();
+		const { width: screenWidth, height: screenHeight } = display.workAreaSize;
+
+		let x: number;
+		let y: number;
+
+		switch (this.settings.windowPosition) {
+			case 'left':
+				x = 50;
+				y = (screenHeight - height) / 2;
+				break;
+			case 'right':
+				x = screenWidth - width - 50;
+				y = (screenHeight - height) / 2;
+				break;
+			case 'last':
+				if (this.settings.lastWindowPosition) {
+					x = this.settings.lastWindowPosition.x;
+					y = this.settings.lastWindowPosition.y;
+				} else {
+					// Fall back to center
+					x = (screenWidth - width) / 2;
+					y = (screenHeight - height) / 2;
+				}
+				break;
+			case 'center':
+			default:
+				x = (screenWidth - width) / 2;
+				y = (screenHeight - height) / 2;
+				break;
+		}
+
+		return { x: Math.round(x), y: Math.round(y) };
+	}
+
+	private setupWindowEventListeners(window: any) {
+		// Track window resize
+		if (this.settings.windowSizeMode === 'remember') {
+			window.on('resize', () => {
+				const [newWidth, newHeight] = window.getSize();
+				this.settings.lastUsedWindowSize = {
+					width: newWidth,
+					height: newHeight
+				};
+				this.saveSettings();
+			});
+		}
+
+		// Track window position
+		if (this.settings.windowPosition === 'last') {
+			window.on('move', () => {
+				const [x, y] = window.getPosition();
+				this.settings.lastWindowPosition = { x, y };
+				this.saveSettings();
+			});
+		}
+
+		// Handle window close (hide instead)
+		window.on('close', (event: any) => {
+			event.preventDefault();
+			
+			// Check if window is not destroyed before calling hide
+			if (!window.isDestroyed()) {
+				window.hide();
+			}
+			
+			// Save cursor position before hiding
+			this.saveCursorPosition();
+		});
+	}
+
+	private async saveCursorPosition() {
+		if (!this.currentFile || !this.popNoteWindow) {
+			// This is normal when closing window or no file is open
 			return;
 		}
+
+		this.debugLog(`Attempting to save cursor position for ${this.currentFile.path}`);
+
+		// Find the markdown view in the PopNote window
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeView && activeView.editor && activeView.file) {
+			// Check if file has a path property
+			const filePath = activeView.file.path;
+			if (filePath) {
+				// For now, let's save regardless of window check to see if it works
+				const cursor = activeView.editor.getCursor();
+				this.settings.cursorPositions[filePath] = cursor;
+				await this.saveSettings();
+				this.debugLog(`Saved cursor position for ${filePath}:`, cursor, `(Total: ${Object.keys(this.settings.cursorPositions).length})`);
+			} else {
+				this.debugLog(`File has no path property`);
+			}
+		} else {
+			this.debugLog(`No active view/editor/file to save cursor for - activeView: ${!!activeView}, editor: ${activeView ? !!activeView.editor : 'N/A'}, file: ${activeView ? !!activeView.file : 'N/A'}`);
+		}
+	}
+
+	private async restoreCursorPosition(file: TFile) {
+		const savedPosition = this.settings.cursorPositions[file.path];
+		this.debugLog(`Restoring cursor for ${file.path}, saved position:`, savedPosition, `(Setting: ${this.settings.cursorPosition})`);
+		
+		// Register a one-time event handler for when the file is opened
+		const eventRef = this.app.workspace.on('file-open', (openedFile) => {
+			if (openedFile?.path === file.path) {
+				// Unregister the event handler
+				this.app.workspace.offref(eventRef);
+				
+				// Wait a bit for the editor to be ready
+				setTimeout(() => {
+					const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+					
+					if (activeView && activeView.file?.path === file.path && activeView.editor) {
+						const editor = activeView.editor;
+						
+						if (this.settings.cursorPosition === 'last' && savedPosition) {
+							editor.setCursor(savedPosition);
+							this.debugLog(`Restored cursor position for ${file.path}:`, savedPosition);
+						} else if (this.settings.cursorPosition === 'end') {
+							const lastLine = editor.lastLine();
+							const lastLineLength = editor.getLine(lastLine).length;
+							editor.setCursor({ line: lastLine, ch: lastLineLength });
+							this.debugLog(`Set cursor to end for ${file.path} (line ${lastLine}, ch ${lastLineLength})`);
+						} else {
+							// Default to start
+							editor.setCursor({ line: 0, ch: 0 });
+							this.debugLog(`Set cursor to start for ${file.path}`);
+						}
+						
+						// Force focus on the editor
+						editor.focus();
+					} else {
+						this.debugWarn(`Could not restore cursor for ${file.path} - view not ready even after file-open event`);
+					}
+				}, 100);
+			}
+		});
+		
+		// Also set a timeout as fallback in case the event doesn't fire
+		setTimeout(() => {
+			// Clean up the event handler if it hasn't fired
+			this.app.workspace.offref(eventRef);
+			
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (activeView && activeView.file?.path === file.path && activeView.editor) {
+				const editor = activeView.editor;
+				
+				if (this.settings.cursorPosition === 'last' && savedPosition) {
+					editor.setCursor(savedPosition);
+					this.debugLog(`Restored cursor position for ${file.path} via fallback:`, savedPosition);
+				} else if (this.settings.cursorPosition === 'end') {
+					const lastLine = editor.lastLine();
+					const lastLineLength = editor.getLine(lastLine).length;
+					editor.setCursor({ line: lastLine, ch: lastLineLength });
+					this.debugLog(`Set cursor to end for ${file.path} via fallback`);
+				} else {
+					editor.setCursor({ line: 0, ch: 0 });
+					this.debugLog(`Set cursor to start for ${file.path} via fallback`);
+				}
+				
+				editor.focus();
+			}
+		}, 500);
+	}
+
+
+	private navigateNote(direction: 'previous' | 'next') {
+		this.debugLog('navigateNote called:', direction);
+
+		// Find current note from active view
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView || !activeView.file) {
+			this.debugLog('No active markdown view found');
+			// If no active view, try to create/show a PopNote window with the most recent note
+			this.getPopNotesSorted().then(async notes => {
+				if (notes.length > 0) {
+					await this.showPopNoteWindow(notes[0]);
+				} else {
+					// Create a new note if none exist
+					const newNote = await this.createNewPopNote();
+					await this.showPopNoteWindow(newNote);
+				}
+			});
+			return;
+		}
+
+		const currentPath = activeView.file.path;
+		this.debugLog('Current note path:', currentPath);
 
 		// Get sorted pop notes
 		this.getPopNotesSorted().then(async notes => {
@@ -573,11 +1301,17 @@ export default class PopNotePlugin extends Plugin {
 					// Already at the newest note
 					if (this.shouldCreateNewNote && (now - this.lastNavigationTimestamp) < 3000) {
 						// User pressed again within 3 seconds, create new note
-						console.log('Creating new note from navigation');
+						this.debugLog('Creating new note from navigation');
 						const newNote = await this.createNewPopNote();
-						const activeLeaf = this.app.workspace.getLeaf();
-						if (activeLeaf) {
-							await activeLeaf.openFile(newNote);
+						// Save cursor position before switching
+						await this.saveCursorPosition();
+						
+						const leaf = this.app.workspace.getLeaf();
+						if (leaf) {
+							await leaf.openFile(newNote);
+							this.currentFile = newNote;
+							// For new notes, set cursor position based on settings
+							await this.restoreCursorPosition(newNote);
 						}
 						this.shouldCreateNewNote = false;
 						return;
@@ -606,22 +1340,23 @@ export default class PopNotePlugin extends Plugin {
 
 			const targetNote = notes[targetIndex];
 			if (targetNote) {
-				// Open target note in current window
-				const activeLeaf = this.app.workspace.getLeaf();
-				if (activeLeaf) {
-					await activeLeaf.openFile(targetNote);
+				this.debugLog(`About to save cursor position, currentFile: ${this.currentFile?.path}`);
+				// Save cursor position before switching
+				await this.saveCursorPosition();
+				this.debugLog(`After saveCursorPosition call`);
+				
+				// Open target note in current active leaf
+				const leaf = this.app.workspace.getLeaf();
+				if (leaf) {
+					await leaf.openFile(targetNote);
+					this.currentFile = targetNote;
+					// Restore cursor position
+					await this.restoreCursorPosition(targetNote);
 				}
 			}
 		});
 	}
 
-	private getCurrentNotePathFromWindow(): string | null {
-		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (activeView && activeView.file) {
-			return activeView.file.path;
-		}
-		return null;
-	}
 
 	async getPopNotesSorted(): Promise<TFile[]> {
 		const folder = this.app.vault.getAbstractFileByPath(this.settings.popNotesFolder);
@@ -648,142 +1383,112 @@ export default class PopNotePlugin extends Plugin {
 		return [...pinnedNotes, ...unpinnedNotes];
 	}
 
-	private cleanupClosedWindows() {
-		for (const [path, window] of this.openWindows.entries()) {
-			if (window.isDestroyed()) {
-				this.openWindows.delete(path);
+	// File tracking methods
+	private updateFileTracking(file: TFile) {
+		if (!file || !file.stat) return;
+		
+		const fileId = String(file.stat.ctime);
+		const oldFileId = this.settings.fileTracking.pathToFileId[file.path];
+		
+		// If file already tracked with different ID, clean up old reference
+		if (oldFileId && oldFileId !== fileId) {
+			delete this.settings.fileTracking.fileIdToPath[oldFileId];
+		}
+		
+		// Update tracking
+		this.settings.fileTracking.fileIdToPath[fileId] = file.path;
+		this.settings.fileTracking.pathToFileId[file.path] = fileId;
+	}
+
+	private handleFileRename(file: TFile, oldPath: string) {
+		if (!file || !file.stat) return;
+		
+		const fileId = String(file.stat.ctime);
+		
+		// Update file tracking
+		delete this.settings.fileTracking.pathToFileId[oldPath];
+		this.settings.fileTracking.pathToFileId[file.path] = fileId;
+		this.settings.fileTracking.fileIdToPath[fileId] = file.path;
+		
+		// Migrate cursor positions
+		if (this.settings.cursorPositions[oldPath]) {
+			this.settings.cursorPositions[file.path] = this.settings.cursorPositions[oldPath];
+			delete this.settings.cursorPositions[oldPath];
+		}
+		
+		// Update pinned notes
+		const pinnedIndex = this.settings.pinnedNotes.indexOf(oldPath);
+		if (pinnedIndex > -1) {
+			this.settings.pinnedNotes[pinnedIndex] = file.path;
+		}
+		
+		// Update lastCreatedNote if it matches
+		if (this.settings.lastCreatedNote?.path === oldPath) {
+			this.settings.lastCreatedNote.path = file.path;
+		}
+		
+		// Save settings
+		this.saveSettings();
+		
+		this.debugLog(`File renamed: ${oldPath} -> ${file.path}`);
+	}
+
+	private async resolveFile(pathOrId: string): Promise<TFile | null> {
+		// First try direct path lookup
+		let file = this.app.vault.getAbstractFileByPath(pathOrId);
+		if (file && file instanceof TFile) {
+			this.updateFileTracking(file);
+			return file;
+		}
+		
+		// Try to find by file ID
+		const fileId = this.settings.fileTracking.pathToFileId[pathOrId] || pathOrId;
+		const currentPath = this.settings.fileTracking.fileIdToPath[fileId];
+		
+		if (currentPath) {
+			file = this.app.vault.getAbstractFileByPath(currentPath);
+			if (file && file instanceof TFile) {
+				this.updateFileTracking(file);
+				return file;
 			}
 		}
+		
+		return null;
 	}
-
-	private scheduleMainWindowMinimize(wasMainWindowVisible: boolean = false) {
-		console.log('Schedule minimize - Mode:', this.settings.autoMinimizeMode, 'Was visible:', wasMainWindowVisible);
-
-		// Check settings
-		if (this.settings.autoMinimizeMode === 'off') {
-			return;
-		}
-
-		// Dynamic mode: only minimize if main window wasn't visible before
-		if (this.settings.autoMinimizeMode === 'dynamic' && wasMainWindowVisible) {
-			console.log('Dynamic mode: Main window was visible before, not minimizing');
-			return;
-		}
-
-		// Always mode or dynamic mode with hidden main window
-		console.log('Scheduling main window minimize...');
-		this.minimizeScheduled = true;
-
-		// Set timeout to stop checking after a few seconds
-		setTimeout(() => {
-			this.minimizeScheduled = false;
-		}, 3000);
-	}
-
-	private checkAndMinimizeMainWindow() {
-		try {
-			const allWindows = BrowserWindow.getAllWindows();
-
-			// Find a visible main window
-			const mainWindow = allWindows.find((w: any) => {
-				if (w.isDestroyed() || !w.isVisible()) return false;
-
-				// Check if this is a main window (not a pop note)
-				const isPopNote = this.popNoteWindowIds.has(w.id);
-				if (isPopNote) return false;
-
-				// For now, return true for any non-pop-note window
-				return true;
-			});
-
-			if (mainWindow) {
-				console.log('Found main window to minimize');
-				mainWindow.minimize();
-				this.minimizeScheduled = false;
-
-				// Show notice
-				new Notice('Main window minimized. Use the taskbar or dock to restore it.');
-			}
-		} catch (error) {
-			console.error('Error checking/minimizing main window:', error);
-		}
-	}
-
-	private handleMainWindowAfterPopNoteClose() {
-		if (this.settings.autoMinimizeMode === 'off') {
-			return;
-		}
-
-		// For always mode, just minimize
-		if (this.settings.autoMinimizeMode === 'always') {
-			this.forceMinimizeMainWindow();
-			return;
-		}
-
-		// For dynamic mode, we rely on the window-specific tracking
-		// The scheduleMainWindowMinimize will be called with the correct state
-	}
-
-	private forceMinimizeMainWindow() {
-		if (this.settings.autoMinimizeMode === 'off') {
-			return;
-		}
-
-		try {
-			console.log('Force minimizing main window...');
-			const allWindows = BrowserWindow.getAllWindows();
-
-			// Try multiple strategies to find and minimize main window
-			allWindows.forEach((w: any) => {
-				if (w.isDestroyed()) return;
-
-				try {
-					const bounds = w.getBounds();
-					const url = w.webContents.getURL();
-					const isVisible = w.isVisible();
-
-					console.log(`Window check - Visible: ${isVisible}, Size: ${bounds.width}x${bounds.height}, URL: ${url}`);
-
-					// If it's visible and not a small window (pop notes are usually smaller)
-					if (isVisible && !this.popNoteWindowIds.has(w.id)) {
-						console.log('Minimizing window ID:', w.id);
-						w.minimize();
-
-						// Only show notice once
-						if (!this.minimizeScheduled) {
-							new Notice('Main window minimized. Use the taskbar or dock to restore it.');
-							this.minimizeScheduled = true;
-
-							// Reset flag after a delay
-							setTimeout(() => {
-								this.minimizeScheduled = false;
-							}, 2000);
-						}
-					}
-				} catch (err) {
-					console.error('Error processing window:', err);
-				}
-			});
-		} catch (error) {
-			console.error('Error in forceMinimizeMainWindow:', error);
-		}
-	}
-
 
 	async deletePopNote(file: TFile) {
 		// Remove from pinned notes if present
 		const pinnedIndex = this.settings.pinnedNotes.indexOf(file.path);
 		if (pinnedIndex > -1) {
 			this.settings.pinnedNotes.splice(pinnedIndex, 1);
-			await this.saveSettings();
 		}
 
-		// Close window if open
-		const window = this.openWindows.get(file.path);
-		if (window && !window.isDestroyed()) {
-			window.close();
+		// Clean up file tracking
+		const fileId = this.settings.fileTracking.pathToFileId[file.path];
+		if (fileId) {
+			delete this.settings.fileTracking.fileIdToPath[fileId];
+			delete this.settings.fileTracking.pathToFileId[file.path];
 		}
-		this.openWindows.delete(file.path);
+
+		// Clean up cursor positions
+		if (this.settings.cursorPositions[file.path]) {
+			delete this.settings.cursorPositions[file.path];
+		}
+
+		// Update lastCreatedNote if it's the deleted file
+		if (this.settings.lastCreatedNote?.path === file.path) {
+			this.settings.lastCreatedNote = null;
+		}
+
+		await this.saveSettings();
+
+		// If the deleted file is currently displayed, hide the window
+		if (this.currentFile && this.currentFile.path === file.path) {
+			if (this.popNoteWindow && !this.popNoteWindow.isDestroyed()) {
+				this.popNoteWindow.hide();
+			}
+			this.currentFile = null;
+		}
 
 		// Delete the file
 		await this.app.vault.delete(file);
@@ -828,9 +1533,9 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 			} else if (evt.altKey && evt.key === 'Enter') {
 				evt.preventDefault();
 				this.close();
-				// Use setTimeout to ensure modal is closed before opening new window
+				// Open in PopNote window
 				setTimeout(() => {
-					this.plugin.openNoteInNewWindow(item.file);
+					this.plugin.showPopNoteWindow(item.file);
 				}, 50);
 				return;
 			}
@@ -967,12 +1672,12 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 		if (currentShortcut === this.plugin.settings.pickerOpenInNewWindowShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
-			console.log('Open in new window shortcut detected');
+			console.log('Open in PopNote window shortcut detected');
 			this.close();
-			// Use setTimeout to ensure modal is closed before opening new window
+			// Open in PopNote window
 			setTimeout(() => {
 				if (selected) {
-					this.plugin.openNoteInNewWindow(selected.file);
+					this.plugin.showPopNoteWindow(selected.file);
 				}
 			}, 50);
 			return;
@@ -1303,7 +2008,7 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 			evt.stopPropagation();
 			const selected = this.getSelectedItem();
 			if (selected) {
-				this.plugin.openNoteInNewWindow(selected.file);
+				this.plugin.showPopNoteWindow(selected.file);
 				this.close();
 			}
 			return false;
@@ -1512,18 +2217,91 @@ class PopNoteSettingTab extends PluginSettingTab {
 			heightSetting.settingEl.style.display = 'none';
 		}
 
+		// Window position setting
 		new Setting(containerEl)
-			.setName('Main window behavior')
-			.setDesc('How to handle the main window when closing PopNotes')
+			.setName('Window position')
+			.setDesc('Where to place the PopNote window')
 			.addDropdown(dropdown => dropdown
-				.addOption('off', 'Off - Never minimize')
-				.addOption('dynamic', 'Dynamic - Only minimize if main window was hidden')
-				.addOption('always', 'Always - Always minimize main window')
-				.setValue(this.plugin.settings.autoMinimizeMode)
+				.addOption('center', 'Center - Center of screen')
+				.addOption('left', 'Left - Left side of screen')
+				.addOption('right', 'Right - Right side of screen')
+				.addOption('last', 'Last - Remember last position')
+				.setValue(this.plugin.settings.windowPosition)
 				.onChange(async (value) => {
-					this.plugin.settings.autoMinimizeMode = value as 'off' | 'dynamic' | 'always';
+					this.plugin.settings.windowPosition = value as 'center' | 'left' | 'right' | 'last';
 					await this.plugin.saveSettings();
 				}));
+
+		// Cursor position setting
+		new Setting(containerEl)
+			.setName('Cursor position')
+			.setDesc('Where to place the cursor when opening a note')
+			.addDropdown(dropdown => dropdown
+				.addOption('start', 'Start - Beginning of note')
+				.addOption('end', 'End - End of note')
+				.addOption('last', 'Last - Remember last position')
+				.setValue(this.plugin.settings.cursorPosition)
+				.onChange(async (value) => {
+					this.plugin.settings.cursorPosition = value as 'start' | 'end' | 'last';
+					await this.plugin.saveSettings();
+				}));
+
+		// Always-on-top settings
+		containerEl.createEl('h3', { text: 'Floating Window Settings' });
+		containerEl.createEl('p', {
+			text: 'Configure PopNote windows to float above other windows.',
+			cls: 'setting-item-description'
+		});
+
+		new Setting(containerEl)
+			.setName('Always on top')
+			.setDesc('Make PopNote windows float above all other windows')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.alwaysOnTop)
+				.onChange(async (value) => {
+					this.plugin.settings.alwaysOnTop = value;
+					await this.plugin.saveSettings();
+					updateFloatingSettingsVisibility();
+				}));
+
+		// Window level setting - only show if always-on-top is enabled
+		const windowLevelSetting = new Setting(containerEl)
+			.setName('Window level')
+			.setDesc('Controls window priority. "High priority" is recommended for most use cases.')
+			.addDropdown(dropdown => dropdown
+				.addOption('screen-saver', 'High priority - Floats above most windows')
+				.addOption('normal', 'Normal - Standard window behavior')
+				.setValue(this.plugin.settings.windowLevel)
+				.onChange(async (value) => {
+					this.plugin.settings.windowLevel = value as 'screen-saver' | 'normal';
+					await this.plugin.saveSettings();
+				}));
+
+		// macOS specific setting - only show if always-on-top is enabled and on macOS
+		const visibleOnAllWorkspacesSetting = new Setting(containerEl)
+			.setName('Visible on all workspaces')
+			.setDesc('Required for floating above fullscreen apps on macOS. Prevents desktop space switching when using PopNote with fullscreen applications.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.visibleOnAllWorkspaces)
+				.onChange(async (value) => {
+					this.plugin.settings.visibleOnAllWorkspaces = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// Control visibility based on always-on-top setting
+		const updateFloatingSettingsVisibility = () => {
+			const display = this.plugin.settings.alwaysOnTop ? 'flex' : 'none';
+			windowLevelSetting.settingEl.style.display = display;
+			// Only show macOS setting on macOS and if always-on-top is enabled
+			if (process.platform === 'darwin') {
+				visibleOnAllWorkspacesSetting.settingEl.style.display = display;
+			} else {
+				visibleOnAllWorkspacesSetting.settingEl.style.display = 'none';
+			}
+		};
+
+		// Set initial visibility
+		updateFloatingSettingsVisibility();
 
 		// Global hotkey section
 		containerEl.createEl('h3', { text: 'Global Hotkey' });
@@ -1552,7 +2330,7 @@ class PopNoteSettingTab extends PluginSettingTab {
 						this.plugin.settings.createNoteHotkey = value;
 						// Don't save if invalid to prevent errors
 						if (!value || this.plugin.isValidHotkey(value)) {
-							await this.plugin.saveSettings();
+							await this.plugin.saveSettingsAndReloadHotkeys();
 						}
 					});
 
@@ -1625,14 +2403,28 @@ class PopNoteSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Open in new window shortcut')
-			.setDesc('Keyboard shortcut to open a note in a new window')
+			.setName('Open in PopNote window shortcut')
+			.setDesc('Keyboard shortcut to open a note in the PopNote window')
 			.addText(text => text
 				.setPlaceholder('Alt+Enter')
 				.setValue(this.plugin.settings.pickerOpenInNewWindowShortcut)
 				.onChange(async (value) => {
 					this.plugin.settings.pickerOpenInNewWindowShortcut = value;
 					await this.plugin.saveSettings();
+				}));
+
+		// Debug settings
+		containerEl.createEl('h3', { text: 'Developer Settings' });
+
+		new Setting(containerEl)
+			.setName('Debug mode')
+			.setDesc('Enable debug logging to console (for troubleshooting)')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.debugMode)
+				.onChange(async (value) => {
+					this.plugin.settings.debugMode = value;
+					await this.plugin.saveSettings();
+					new Notice(value ? 'Debug mode enabled' : 'Debug mode disabled');
 				}));
 	}
 }

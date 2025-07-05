@@ -6,8 +6,9 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 
 ### Global Pop Note Creation
 - **System-wide hotkey** (default: `Ctrl+Shift+N` / `Cmd+Shift+N`) to create or open pop notes from anywhere, even when Obsidian is not focused
-- Notes open in separate popup windows, keeping your main workspace undisturbed
-- Smart window management prevents duplicate windows for the same note
+- Notes open in separate floating windows, keeping your main workspace undisturbed
+- **Hide/Show Pattern**: Windows are hidden rather than closed, preserving state and improving performance
+- Smart window management prevents duplicate windows
 
 ### Intelligent Note Management
 - **Buffer Time System**: 
@@ -15,11 +16,13 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
   - Options: Always create new, Always reuse last, or Custom duration (in minutes)
 - **Custom Note Naming**: Flexible naming patterns with variables like `{{date}}`, `{{time}}`, `{{year}}`, `{{month}}`, etc.
 - **Template Support**: Apply templates automatically to new pop notes
+- **File Tracking**: Tracks files by creation time to handle renames gracefully
 
 ### Navigation Features
 - **Previous/Next Navigation**: Quickly navigate between your pop notes using keyboard shortcuts
 - **Smart Navigation**: When at the newest note, pressing "next" prompts to create a new note
 - **Sort Options**: Order notes by creation time or last modified time
+- **Cursor Position Memory**: Remembers cursor position for each file across navigation
 
 ### Pop Notes Picker
 - **Native Obsidian interface** using the built-in fuzzy search modal
@@ -32,12 +35,19 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 - **Pin important notes** to keep them at the top of the list
 - **Smart sorting**: Pinned notes appear first, followed by others in your preferred order
 
-### Smart Window Behavior
-- **Three window management modes**:
-  - **Off**: Never minimize the main window
-  - **Dynamic** (default): Only minimize if main window was hidden before creating pop note
-  - **Always**: Always minimize main window after closing pop notes
-- Preserves your workflow by respecting the main window state
+### Advanced Window Features
+- **Floating Windows**: 
+  - Always-on-top option for persistent visibility
+  - Window level control (normal, floating, screen-saver)
+  - Visible on all workspaces (macOS) - perfect for fullscreen apps
+- **Window Position & Size**:
+  - Remember last position and size
+  - Fixed size option
+  - Position presets: center, left, right, or last position
+- **Cursor Position**:
+  - Options: start, end, or last remembered position
+  - Persists across file switches and renames
+- **Session Persistence**: PopNote windows reconnect after Obsidian restart
 
 ## Installation
 
@@ -52,28 +62,32 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 3. Reload Obsidian
 4. Enable the plugin in Settings → Community Plugins
 
-## Configuration
+## Documentation
+
+📚 **[Features Guide](./docs/features.md)** - Comprehensive guide explaining all features with examples  
+⚙️ **[Settings Reference](./docs/settings.md)** - Detailed reference for every setting and configuration option
+
+## Quick Configuration
 
 ### Pop Notes Settings
 - **Pop notes folder**: Specify where to store your pop notes (default: "PopNotes")
-- **Note name pattern**: Customize how notes are named
+- **Note name pattern**: Customize how notes are named with variables like `{{date}}`, `{{time}}`
 - **Template file**: Select a template to apply to new notes
-- **Buffer time**: Configure note reuse behavior
+- **Buffer time**: Configure note reuse behavior (always new, always reuse, or time-based)
 - **Sort order**: Choose between creation time or modification time
 
 ### Window Settings
-- **Default window size**: Set preferred dimensions for popup windows
-- **Main window behavior**: Choose how the main window behaves when closing pop notes
+- **Window Size**: Fixed size mode or remember last size
+- **Window Position**: Center, left, right, or remember last position
+- **Floating Windows**: Always-on-top with configurable priority levels
+- **Cursor Position**: Start, end, or remember last position
 
 ### Hotkeys
-- **Global hotkey**: System-wide shortcut for creating/opening pop notes
-- **Navigation hotkeys**: Configure through Obsidian's Hotkeys settings:
-  - PopNote: Navigate to previous pop note
-  - PopNote: Navigate to next pop note
-  - PopNote: Show pop notes picker
-- **Picker shortcuts**: Customize keyboard shortcuts within the picker:
-  - Pin/unpin, delete, open in new tab/window
-  - Configure in plugin settings under "Pop Notes Picker Shortcuts"
+- **Global hotkey**: System-wide shortcut (default: `Ctrl/Cmd+Shift+N`)
+- **Navigation hotkeys**: Configure in Obsidian Settings → Hotkeys
+- **Picker shortcuts**: Customizable shortcuts for pin, delete, and open actions
+
+For complete details on all settings and features, please refer to the documentation linked above.
 
 ## Usage
 
@@ -99,8 +113,10 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 
 1. **Pop Capture Workflow**: Set buffer time to "permanent" to maintain a single daily capture note
 2. **Project Notes**: Use different note patterns for different projects by changing settings
-3. **Window Management**: Use "Dynamic" mode to preserve your workspace when actively using Obsidian
+3. **Floating Notes**: Enable always-on-top with screen-saver level to keep notes visible even over fullscreen apps
 4. **Template Variables**: Create rich templates with date/time variables for automatic timestamps
+5. **Quick Access**: Set window position to "last" and cursor to "last" for seamless workflow continuation
+6. **Multi-Desktop**: Enable "visible on all workspaces" (macOS) to access your PopNote from any desktop space
 
 ## Requirements
 
