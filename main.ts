@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, normalizePath, MarkdownView, Vault, FuzzySuggestModal, FuzzyMatch, Modifier, TextComponent } from 'obsidian';
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, normalizePath, MarkdownView, Vault, FuzzySuggestModal, FuzzyMatch, Modifier, TextComponent, AbstractInputSuggest } from 'obsidian';
 
 // Access Electron APIs
 const { remote } = require('electron');
@@ -83,30 +83,96 @@ const DEFAULT_SETTINGS: PopNoteSettings = {
 	debugMode: false
 }
 
-// Modal for selecting template files
-class TemplateFileSelectorModal extends FuzzySuggestModal<TFile> {
-	plugin: PopNotePlugin;
-	onSelect: (file: TFile) => void;
-
-	constructor(app: App, plugin: PopNotePlugin, onSelect: (file: TFile) => void) {
-		super(app);
-		this.plugin = plugin;
-		this.onSelect = onSelect;
-		this.setPlaceholder('Select a template file...');
+// Folder suggester for settings
+class FolderSuggest extends AbstractInputSuggest<TFolder> {
+	textInputEl: HTMLInputElement;
+	
+	constructor(app: App, inputEl: HTMLInputElement) {
+		super(app, inputEl);
+		this.textInputEl = inputEl;
 	}
 
-	getItems(): TFile[] {
-		return this.app.vault.getMarkdownFiles();
+	getSuggestions(inputStr: string): TFolder[] {
+		const folders: TFolder[] = [];
+		const lowerInput = inputStr.toLowerCase();
+		
+		// Add root folder option
+		if (!inputStr || '/'.includes(lowerInput)) {
+			folders.push(this.app.vault.getRoot());
+		}
+		
+		// Get all folders matching the input
+		this.app.vault.getAllLoadedFiles().forEach(file => {
+			if (file instanceof TFolder && file.path.toLowerCase().includes(lowerInput)) {
+				folders.push(file);
+			}
+		});
+		
+		// Sort by path length (shorter paths first)
+		return folders.sort((a, b) => a.path.length - b.path.length).slice(0, 10);
 	}
 
-	getItemText(file: TFile): string {
-		return file.path;
+	renderSuggestion(folder: TFolder, el: HTMLElement): void {
+		if (folder.path === '/') {
+			el.setText('/ (Vault root)');
+		} else {
+			el.setText(folder.path);
+		}
 	}
 
-	onChooseItem(file: TFile): void {
-		this.onSelect(file);
+	selectSuggestion(folder: TFolder): void {
+		const inputEl = this.textInputEl;
+		inputEl.value = folder.path === '/' ? '' : folder.path;
+		inputEl.dispatchEvent(new Event('input'));
+		this.close();
 	}
 }
+
+// File suggester for template settings
+class FileSuggest extends AbstractInputSuggest<TFile> {
+	textInputEl: HTMLInputElement;
+	
+	constructor(app: App, inputEl: HTMLInputElement) {
+		super(app, inputEl);
+		this.textInputEl = inputEl;
+	}
+
+	getSuggestions(inputStr: string): TFile[] {
+		const files: TFile[] = [];
+		const lowerInput = inputStr.toLowerCase();
+		
+		this.app.vault.getAllLoadedFiles().forEach(file => {
+			if (file instanceof TFile && 
+				file.extension === 'md' && 
+				file.path.toLowerCase().includes(lowerInput)) {
+				files.push(file);
+			}
+		});
+		
+		// Sort by path
+		return files.sort((a, b) => a.path.localeCompare(b.path)).slice(0, 10);
+	}
+
+	renderSuggestion(file: TFile, el: HTMLElement): void {
+		el.setText(file.path);
+		// Add folder path as description if file is in a subfolder
+		const folderPath = file.parent?.path;
+		if (folderPath && folderPath !== '/') {
+			el.createEl('small', { 
+				text: ` (${folderPath})`,
+				cls: 'popnote-file-suggestion-folder'
+			});
+		}
+	}
+
+	selectSuggestion(file: TFile): void {
+		const inputEl = this.textInputEl;
+		inputEl.value = file.path;
+		inputEl.dispatchEvent(new Event('input'));
+		this.close();
+	}
+}
+
 
 export default class PopNotePlugin extends Plugin {
 	settings: PopNoteSettings;
@@ -2290,13 +2356,18 @@ class PopNoteSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('PopNote folder')
 			.setDesc('Folder where PopNotes will be stored')
-			.addText(text => text
-				.setPlaceholder('PopNotes')
-				.setValue(this.plugin.settings.popNotesFolder)
-				.onChange(async (value) => {
-					this.plugin.settings.popNotesFolder = value;
-					await this.plugin.saveSettings();
-				}));
+			.addText(text => {
+				new FolderSuggest(this.app, text.inputEl);
+				text
+					.setPlaceholder('PopNotes')
+					.setValue(this.plugin.settings.popNotesFolder)
+					.onChange(async (value) => {
+						// Trim and remove trailing slash
+						value = value.trim().replace(/\/$/, '');
+						this.plugin.settings.popNotesFolder = value;
+						await this.plugin.saveSettings();
+					});
+			});
 
 		// Note naming pattern
 		new Setting(containerEl)
@@ -2311,40 +2382,19 @@ class PopNoteSettingTab extends PluginSettingTab {
 				}));
 
 		// Template file
-		const templateSetting = new Setting(containerEl)
+		new Setting(containerEl)
 			.setName('Template file')
-			.setDesc('Optional template file for new PopNotes. Available variables: {{title}},{{date}}, {{time}}, {{timestamp}}, {{year}}, {{month}}, {{day}}, {{hour}}, {{minute}}, {{second}}');
-
-		// Store reference to text input for later use
-		let textInput: any;
-
-		// Add button first
-		templateSetting.addButton(button => {
-			button
-				.setButtonText('Select')
-				.setCta()
-				.onClick(() => {
-					new TemplateFileSelectorModal(this.app, this.plugin, (file) => {
-						if (textInput) {
-							textInput.setValue(file.path);
-						}
-						this.plugin.settings.templateFile = file.path;
-						this.plugin.saveSettings();
-					}).open();
-				});
-		});
-
-		// Add text input after button
-		templateSetting.addText(text => {
-			textInput = text;
-			text
-				.setPlaceholder('Templates/PopNote Template.md')
-				.setValue(this.plugin.settings.templateFile)
-				.onChange(async (value) => {
-					this.plugin.settings.templateFile = value;
-					await this.plugin.saveSettings();
-				});
-		});
+			.setDesc('Optional template file for new PopNotes. Available variables: {{title}}, {{date}}, {{time}}, {{timestamp}}, {{year}}, {{month}}, {{day}}, {{hour}}, {{minute}}, {{second}}')
+			.addText(text => {
+				new FileSuggest(this.app, text.inputEl);
+				text
+					.setPlaceholder('Templates/PopNote Template.md')
+					.setValue(this.plugin.settings.templateFile)
+					.onChange(async (value) => {
+						this.plugin.settings.templateFile = value;
+						await this.plugin.saveSettings();
+					});
+			});
 
 		// Buffer time
 		new Setting(containerEl)
@@ -2577,42 +2627,219 @@ class PopNoteSettingTab extends PluginSettingTab {
 			cls: 'setting-item-description'
 		});
 
+		// Global hotkey setting with improved UI
 		const globalHotkeySetting = new Setting(containerEl)
 			.setName('Create/open PopNote')
-			.setDesc('Global hotkey to create or open a PopNote from anywhere. ');
-
-		// Add link to description
-		const descEl = globalHotkeySetting.descEl;
-		descEl.createEl('a', {
-			text: 'See available modifiers',
-			href: 'https://www.electronjs.org/docs/latest/api/accelerator#available-modifiers'
-		});
-
-		globalHotkeySetting
-			.addText(text => {
-				text
-					.setPlaceholder('CmdOrCtrl+Shift+N')
-					.setValue(this.plugin.settings.createNoteHotkey)
-					.onChange(async (value) => {
-						this.plugin.settings.createNoteHotkey = value;
-						// Don't save if invalid to prevent errors
-						if (!value || this.plugin.isValidHotkey(value)) {
-							await this.plugin.saveSettingsAndReloadHotkeys();
-						}
-					});
-
-				// Add validation indicator
-				text.inputEl.addEventListener('input', () => {
-					const value = text.getValue();
-					if (value && !this.plugin.isValidHotkey(value)) {
-						text.inputEl.addClass('is-invalid');
-						text.inputEl.setAttribute('title', 'Incomplete hotkey combination');
-					} else {
-						text.inputEl.removeClass('is-invalid');
-						text.inputEl.removeAttribute('title');
-					}
-				});
+			.setDesc('Configure the global hotkey to create or open a PopNote from anywhere.');
+		
+		// Create container that spans the full width below the setting
+		const hotkeyFullContainer = containerEl.createDiv({ cls: 'popnote-hotkey-full-container' });
+		
+		// Current hotkey display (at the top)
+		const currentHotkeyContainer = hotkeyFullContainer.createDiv({ cls: 'popnote-current-hotkey-container' });
+		currentHotkeyContainer.createEl('span', { text: 'Current: ', cls: 'popnote-label' });
+		const currentHotkeyDisplay = currentHotkeyContainer.createEl('span', { cls: 'popnote-current-hotkey' });
+		
+		// Create modifiers container
+		const modifiersContainer = hotkeyFullContainer.createDiv({ cls: 'popnote-modifiers-container' });
+		modifiersContainer.createEl('span', { text: 'Modifiers: ', cls: 'popnote-label' });
+		
+		// Platform-specific modifiers
+		const isMac = process.platform === 'darwin';
+		const modifiers = isMac 
+			? [
+				{ value: 'Cmd', label: '⌘ Cmd' },
+				{ value: 'Ctrl', label: '⌃ Ctrl' },
+				{ value: 'Alt', label: '⌥ Option' },
+				{ value: 'Shift', label: '⇧ Shift' }
+			]
+			: [
+				{ value: 'Ctrl', label: 'Ctrl' },
+				{ value: 'Alt', label: 'Alt' },
+				{ value: 'Shift', label: 'Shift' },
+				{ value: 'Super', label: 'Super/Win' }
+			];
+		
+		// Keep track of selected modifiers
+		const selectedModifiers: Set<string> = new Set();
+		
+		// Parse current hotkey to set initial state
+		const currentHotkey = this.plugin.settings.createNoteHotkey;
+		let currentKey = '';
+		if (currentHotkey) {
+			const parts = currentHotkey.split('+');
+			currentKey = parts[parts.length - 1];
+			parts.slice(0, -1).forEach(mod => {
+				// Handle CmdOrCtrl
+				if (mod === 'CmdOrCtrl') {
+					selectedModifiers.add(isMac ? 'Cmd' : 'Ctrl');
+				} else if (mod === 'Option' && isMac) {
+					// Handle Option on macOS (stored as Alt internally)
+					selectedModifiers.add('Alt');
+				} else {
+					selectedModifiers.add(mod);
+				}
 			});
+		}
+		
+		// Create checkboxes for modifiers
+		const modifierCheckboxes: Record<string, HTMLInputElement> = {};
+		modifiers.forEach(mod => {
+			const label = modifiersContainer.createEl('label', { cls: 'popnote-modifier-label' });
+			const checkbox = label.createEl('input', { 
+				type: 'checkbox',
+				cls: 'popnote-modifier-checkbox'
+			});
+			checkbox.checked = selectedModifiers.has(mod.value);
+			modifierCheckboxes[mod.value] = checkbox;
+			label.createSpan({ text: mod.label });
+			
+			checkbox.addEventListener('change', () => {
+				if (checkbox.checked) {
+					selectedModifiers.add(mod.value);
+				} else {
+					selectedModifiers.delete(mod.value);
+				}
+				updateHotkey();
+			});
+		});
+		
+		// Create key input
+		const keyContainer = hotkeyFullContainer.createDiv({ cls: 'popnote-key-container' });
+		keyContainer.createEl('span', { text: 'Key: ', cls: 'popnote-label' });
+		const keyInput = keyContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'e.g., N, P, Space',
+			value: currentKey,
+			cls: 'popnote-key-input'
+		});
+		
+		// Add help link for valid key codes
+		keyContainer.createEl('a', {
+			text: 'Available key codes',
+			href: 'https://www.electronjs.org/docs/latest/api/accelerator#available-key-codes',
+			cls: 'popnote-key-help-link'
+		});
+		
+		// Function to update the hotkey
+		const updateHotkey = async () => {
+			const key = keyInput.value.trim();
+			if (!key) {
+				currentHotkeyDisplay.setText('No hotkey set');
+				this.plugin.settings.createNoteHotkey = '';
+				await this.plugin.saveSettingsAndReloadHotkeys();
+				return;
+			}
+			
+			// Build hotkey string
+			const modifiersList = Array.from(selectedModifiers).sort();
+			if (modifiersList.length === 0) {
+				currentHotkeyDisplay.setText('⚠️ At least one modifier required');
+				currentHotkeyDisplay.addClass('mod-warning');
+				return;
+			}
+			
+			currentHotkeyDisplay.removeClass('mod-warning');
+			
+			// Build the hotkey string
+			const hotkeyParts = [...modifiersList, key];
+			const hotkey = hotkeyParts.join('+');
+			
+			// Update display - convert Alt to Option on macOS for display
+			let displayHotkey = hotkey;
+			if (isMac && displayHotkey.includes('Alt')) {
+				displayHotkey = displayHotkey.replace(/Alt/g, 'Option');
+			}
+			currentHotkeyDisplay.setText(displayHotkey);
+			
+			// Save hotkey
+			this.plugin.settings.createNoteHotkey = hotkey;
+			if (this.plugin.isValidHotkey(hotkey)) {
+				await this.plugin.saveSettingsAndReloadHotkeys();
+			}
+		};
+		
+		// Add input listener for key
+		keyInput.addEventListener('input', () => {
+			// Allow only single keys or special keys
+			let value = keyInput.value;
+			
+			// Handle special keys
+			const specialKeys = ['Space', 'Tab', 'Enter', 'Escape', 'Backspace', 'Delete', 
+								'Home', 'End', 'PageUp', 'PageDown', 'Up', 'Down', 'Left', 'Right'];
+			
+			// If it's not a special key, take only the last character
+			if (!specialKeys.some(k => value.toLowerCase() === k.toLowerCase())) {
+				value = value.slice(-1).toUpperCase();
+			}
+			
+			keyInput.value = value;
+			updateHotkey();
+		});
+		
+		// Initial update
+		updateHotkey();
+		
+		// Add CSS styles if not already added
+		if (!document.getElementById('popnote-settings-styles')) {
+			const style = document.createElement('style');
+			style.id = 'popnote-settings-styles';
+			style.textContent = `
+				.popnote-hotkey-full-container {
+					margin-top: 10px;
+					margin-bottom: 20px;
+					display: flex;
+					flex-direction: column;
+					gap: 15px;
+				}
+				.popnote-current-hotkey-container,
+				.popnote-modifiers-container,
+				.popnote-key-container {
+					display: flex;
+					align-items: center;
+					gap: 10px;
+					flex-wrap: wrap;
+				}
+				.popnote-modifier-label {
+					display: flex;
+					align-items: center;
+					gap: 5px;
+					margin: 0;
+				}
+				.popnote-modifier-checkbox {
+					margin: 0;
+				}
+				.popnote-key-input {
+					width: 100px;
+				}
+				.popnote-current-hotkey {
+					font-family: monospace;
+					color: var(--text-muted);
+					padding: 8px 12px;
+					background: var(--background-modifier-form-field);
+					border-radius: 4px;
+					white-space: nowrap;
+				}
+				.popnote-current-hotkey.mod-warning {
+					color: var(--text-error);
+					background: var(--background-modifier-error);
+				}
+				.popnote-label {
+					font-weight: 500;
+					min-width: 80px;
+					display: inline-block;
+				}
+				.popnote-file-suggestion-folder {
+					color: var(--text-muted);
+					font-size: 0.9em;
+				}
+				.popnote-key-help-link {
+					font-size: 0.85em;
+					margin-left: 10px;
+				}
+			`;
+			document.head.appendChild(style);
+		}
 
 		// Obsidian hotkeys info
 		containerEl.createEl('h3', { text: 'Obsidian Hotkeys' });
