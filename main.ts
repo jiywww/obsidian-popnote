@@ -1606,11 +1606,18 @@ interface PopNoteItem {
 }
 
 class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
+	// Debug logging method
+	private debugLog(...args: any[]) {
+		if (this.plugin.settings.debugMode) {
+			console.log('[PopNote Picker]', ...args);
+		}
+	}
+
 	// Add the required abstract method
 	onChooseItem(item: PopNoteItem, evt: MouseEvent | KeyboardEvent): void {
 		// Check for modifier keys in the event
 		if (evt instanceof KeyboardEvent) {
-			console.log('onChooseItem KeyboardEvent:', evt.key, 'Modifiers:', {
+			this.debugLog('onChooseItem KeyboardEvent:', evt.key, 'Modifiers:', {
 				ctrl: evt.ctrlKey,
 				meta: evt.metaKey,
 				alt: evt.altKey,
@@ -1678,7 +1685,7 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 								const item = items.find(i => i.displayText === displayText);
 								if (item) {
 									this.currentSelected = item;
-									console.log('Selection changed to:', displayText);
+									this.debugLog('Selection changed to:', displayText);
 								}
 							}
 						}
@@ -1702,7 +1709,7 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 	}
 
 	private handleKeyDown(evt: KeyboardEvent) {
-		console.log('Modal keydown event:', evt.key, 'Modifiers:', {
+		this.debugLog('Modal keydown event:', evt.key, 'Modifiers:', {
 			ctrl: evt.ctrlKey,
 			meta: evt.metaKey,
 			alt: evt.altKey,
@@ -1712,17 +1719,17 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 		// Try multiple ways to get selected item
 		let selected = this.getSelectedItem();
 		if (!selected && this.currentSelected) {
-			console.log('Using currentSelected from renderSuggestion');
+			this.debugLog('Using currentSelected from renderSuggestion');
 			selected = this.currentSelected;
 		}
 
 		if (!selected) {
-			console.log('No item selected - trying to get first visible item');
+			this.debugLog('No item selected - trying to get first visible item');
 			// As a last resort, try to get the first item if there's only one
 			const items = this.getItems();
 			if (items.length === 1) {
 				selected = items[0];
-				console.log('Using first item as fallback');
+				this.debugLog('Using first item as fallback');
 			} else {
 				return;
 			}
@@ -1730,14 +1737,14 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 
 		// Check if current key combination matches any configured shortcuts
 		const currentShortcut = this.getShortcutFromEvent(evt);
-		console.log('Current shortcut:', currentShortcut);
+		this.debugLog('Current shortcut:', currentShortcut);
 
 		// Pin/Unpin
 		if (currentShortcut === this.plugin.settings.pickerPinShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
 			evt.stopImmediatePropagation();
-			console.log('Pin shortcut detected via keydown');
+			this.debugLog('Pin shortcut detected via keydown');
 			this.togglePin(selected);
 			return;
 		}
@@ -1747,7 +1754,7 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 			evt.preventDefault();
 			evt.stopPropagation();
 			evt.stopImmediatePropagation();
-			console.log('Delete shortcut detected via keydown');
+			this.debugLog('Delete shortcut detected via keydown');
 			this.deleteNote(selected);
 			return;
 		}
@@ -1756,7 +1763,7 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 		if (currentShortcut === this.plugin.settings.pickerOpenInNewTabShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
-			console.log('Open in new tab shortcut detected');
+			this.debugLog('Open in new tab shortcut detected');
 			this.openInNewTab(selected);
 			return;
 		}
@@ -1765,7 +1772,7 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 		if (currentShortcut === this.plugin.settings.pickerOpenInNewWindowShortcut) {
 			evt.preventDefault();
 			evt.stopPropagation();
-			console.log('Open in PopNote window shortcut detected');
+			this.debugLog('Open in PopNote window shortcut detected');
 			this.close();
 			// Open in PopNote window
 			setTimeout(() => {
@@ -1797,8 +1804,8 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 
 	async onOpen() {
 		super.onOpen();
-		console.log('PopNotePickerModal opened');
-		console.log('Scope available:', !!this.scope);
+		this.debugLog('PopNotePickerModal opened');
+		this.debugLog('Scope available:', !!this.scope);
 
 		// Load notes
 		this.notes = await this.plugin.getPopNotesSorted();
@@ -1898,18 +1905,18 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 	private getSelectedItem(): PopNoteItem | null {
 		// @ts-ignore - accessing private property
 		const selectedIndex = this.chooser?.selectedItem;
-		console.log('getSelectedItem - selectedIndex:', selectedIndex);
+		this.debugLog('getSelectedItem - selectedIndex:', selectedIndex);
 		if (selectedIndex !== undefined && selectedIndex >= 0) {
 			// @ts-ignore - accessing private property
 			const values = this.chooser?.values;
-			console.log('getSelectedItem - values:', values?.length);
+			this.debugLog('getSelectedItem - values:', values?.length);
 			if (values && values[selectedIndex]) {
 				const item = values[selectedIndex].item;
-				console.log('getSelectedItem - found item:', item.displayText);
+				this.debugLog('getSelectedItem - found item:', item.displayText);
 				return item;
 			}
 		}
-		console.log('getSelectedItem - no item found');
+		this.debugLog('getSelectedItem - no item found');
 		return null;
 	}
 
@@ -2115,17 +2122,17 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 
 		// Register pin shortcut
 		const pinShortcut = parseShortcut(this.plugin.settings.pickerPinShortcut);
-		console.log('Registering pin shortcut:', pinShortcut.modifiers, pinShortcut.key);
+		this.debugLog('Registering pin shortcut:', pinShortcut.modifiers, pinShortcut.key);
 		this.scope.register(pinShortcut.modifiers, pinShortcut.key, (evt: KeyboardEvent) => {
-			console.log('Pin shortcut triggered');
+			this.debugLog('Pin shortcut triggered');
 			evt.preventDefault();
 			evt.stopPropagation();
 			const selected = this.getSelectedItem();
 			if (selected) {
-				console.log('Toggling pin for:', selected.displayText);
+				this.debugLog('Toggling pin for:', selected.displayText);
 				this.togglePin(selected);
 			} else {
-				console.log('No item selected');
+				this.debugLog('No item selected');
 			}
 			return false;
 		});
