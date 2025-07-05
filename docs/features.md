@@ -198,13 +198,22 @@ When enabled, PopNote windows float above all other windows.
 
 1. **Normal**
    - Standard window behavior
+   - No always-on-top functionality
    - Can be covered by other windows
-   - Best for: General use
+   - Best for: Users who don't need floating windows
 
-2. **High Priority (Screen-saver level)**
-   - Floats above most windows
-   - Stays visible even over fullscreen videos
-   - Best for: Critical notes, live presentations
+2. **Floating**
+   - Always-on-top behavior
+   - Better integration with macOS dock
+   - Cannot appear above fullscreen apps
+   - Best for: Most users who want floating notes
+
+3. **Fullscreen (Screen-saver level)**
+   - Maximum visibility priority
+   - Appears above fullscreen applications
+   - Works with presentations and games
+   - Best for: Users who need notes visible everywhere
+   - **macOS Note:** May cause dock icon issues when main window is minimized
 
 #### Visible on All Workspaces (macOS)
 
@@ -215,7 +224,7 @@ This macOS-specific feature makes PopNote available on all virtual desktops/spac
 - No need to switch spaces
 - Works with fullscreen applications
 
-**Important:** Required for floating above fullscreen apps on macOS.
+**Important:** Only available when using the Fullscreen window level.
 
 ## Note Navigation
 
