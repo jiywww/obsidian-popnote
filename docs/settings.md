@@ -278,35 +278,47 @@ This document provides a complete reference for all PopNote settings, including 
 ### Window Level
 
 **Type:** Dropdown  
-**Default:** High priority (screen-saver)  
-**Options:** Normal, High priority  
+**Default:** Fullscreen (screen-saver)  
+**Options:** Fullscreen, Floating, Normal  
 **Visible When:** Always On Top = On  
-**Description:** Controls floating window priority.
+**Description:** Controls how PopNote windows interact with other windows.
 
 #### Window Levels
 
-**Normal:**
-- Standard always-on-top
-- Below system alerts
-- May be covered by fullscreen apps
+**Fullscreen (screen-saver level):**
+- Maximum visibility priority
+- Appears above fullscreen applications
+- Works with presentations and games
+- **macOS Note:** May cause dock icon issues when main window is minimized
 
-**High Priority (Screen-saver level):**
-- Maximum visibility
-- Above most windows
-- Covers fullscreen content
-- Works with presentations
+**Floating:**
+- Always-on-top behavior
+- Better integration with macOS dock
+- Cannot appear above fullscreen apps
+- Good balance for most workflows
+
+**Normal:**
+- Standard window behavior
+- No always-on-top functionality
+- Behaves like regular application windows
+- Best for users who don't need floating windows
 
 **Platform Differences:**
-- Windows: Both levels similar
-- macOS: High priority significantly different
-- Linux: Varies by window manager
+- **Windows:** All levels provide similar always-on-top behavior
+- **macOS:** Significant differences between levels, especially with dock and spaces
+- **Linux:** Behavior varies by window manager
+
+**Choosing the Right Level:**
+- Need to see notes over fullscreen apps? → Use **Fullscreen**
+- Want floating notes with good OS integration? → Use **Floating**
+- Don't need always-on-top? → Use **Normal**
 
 ### Visible on All Workspaces
 
 **Type:** Toggle  
 **Default:** Off  
 **Platform:** macOS only  
-**Visible When:** Always On Top = On  
+**Visible When:** Always On Top = On AND Window Level = Fullscreen  
 **Description:** Shows PopNote on all virtual desktops/spaces.
 
 **Benefits:**

@@ -38,8 +38,11 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 ### Advanced Window Features
 - **Floating Windows**: 
   - Always-on-top option for persistent visibility
-  - Window level control (normal, floating, screen-saver)
-  - Visible on all workspaces (macOS) - perfect for fullscreen apps
+  - Three window level options:
+    - **Fullscreen**: Appears above fullscreen apps (may affect macOS dock behavior)
+    - **Floating**: Always on top with better dock integration (no fullscreen support)
+    - **Normal**: Standard window behavior
+  - Visible on all workspaces (macOS) - available with Fullscreen level
 - **Window Position & Size**:
   - Remember last position and size
   - Fixed size option
@@ -113,7 +116,10 @@ For complete details on all settings and features, please refer to the documenta
 
 1. **Pop Capture Workflow**: Set buffer time to "permanent" to maintain a single daily capture note
 2. **Project Notes**: Use different note patterns for different projects by changing settings
-3. **Floating Notes**: Enable always-on-top with screen-saver level to keep notes visible even over fullscreen apps
+3. **Floating Notes**: 
+   - Use "Fullscreen" level to keep notes visible over fullscreen apps
+   - Use "Floating" level for better dock integration on macOS
+   - Use "Normal" level if you don't need always-on-top behavior
 4. **Template Variables**: Create rich templates with date/time variables for automatic timestamps
 5. **Quick Access**: Set window position to "last" and cursor to "last" for seamless workflow continuation
 6. **Multi-Desktop**: Enable "visible on all workspaces" (macOS) to access your PopNote from any desktop space

@@ -29,9 +29,8 @@ interface PopNoteSettings {
 	pickerDeleteShortcut: string;
 	pickerOpenInNewTabShortcut: string;
 	pickerOpenInNewWindowShortcut: string;
-	// Always-on-top settings
-	alwaysOnTop: boolean;
-	windowLevel: 'screen-saver' | 'normal';
+	// Window behavior settings
+	windowLevel: 'screen-saver' | 'floating' | 'normal';
 	visibleOnAllWorkspaces: boolean;
 	// Cursor position settings
 	cursorPosition: 'start' | 'end' | 'last';
@@ -66,8 +65,7 @@ const DEFAULT_SETTINGS: PopNoteSettings = {
 	pickerDeleteShortcut: 'Mod+D',
 	pickerOpenInNewTabShortcut: 'Mod+Enter',
 	pickerOpenInNewWindowShortcut: 'Alt+Enter',
-	// Always-on-top settings
-	alwaysOnTop: false,
+	// Window behavior settings
 	windowLevel: 'screen-saver',
 	visibleOnAllWorkspaces: false,
 	// Cursor position settings
@@ -279,6 +277,20 @@ export default class PopNotePlugin extends Plugin {
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		
+		// Migration: Handle legacy alwaysOnTop setting
+		// If user had alwaysOnTop disabled, set windowLevel to 'normal'
+		// If user had alwaysOnTop enabled, keep their existing windowLevel
+		const settingsAny = this.settings as any;
+		if ('alwaysOnTop' in settingsAny) {
+			if (!settingsAny.alwaysOnTop && this.settings.windowLevel !== 'normal') {
+				this.settings.windowLevel = 'normal';
+				this.debugLog('Migrated: alwaysOnTop was false, setting windowLevel to normal');
+			}
+			// Clean up the old setting
+			delete settingsAny.alwaysOnTop;
+			await this.saveSettings();
+		}
 	}
 
 	async saveSettings() {
@@ -412,6 +424,12 @@ export default class PopNotePlugin extends Plugin {
 				app.on('will-quit', () => {
 					this.debugLog('App will-quit event triggered - final cleanup');
 					this.cleanupPopNoteWindows();
+				});
+				
+				// Listen for app activation (when dock icon is clicked on macOS)
+				app.on('activate', () => {
+					this.debugLog('App activate event triggered (dock icon clicked)');
+					this.handleAppActivate();
 				});
 			}
 			
@@ -612,6 +630,75 @@ export default class PopNotePlugin extends Plugin {
 		}
 	}
 	
+	private handleAppActivate() {
+		// This is called when the dock icon is clicked on macOS
+		this.debugLog('handleAppActivate called - checking window states');
+		
+		// Only handle app activation if we're using screen-saver level
+		// Other window levels don't have the dock issue
+		if (this.settings.windowLevel !== 'screen-saver') {
+			this.debugLog('Window level is not screen-saver, skipping special handling');
+			return;
+		}
+		
+		try {
+			const allWindows = BrowserWindow.getAllWindows();
+			this.debugLog(`Found ${allWindows.length} total windows`);
+			
+			// Find the main window (not PopNote)
+			const mainWindow = allWindows.find((w: any) => {
+				if (w.isDestroyed()) return false;
+				
+				// Check if this is NOT a PopNote window
+				const windowAny = w as any;
+				if (windowAny.isPopNote === true) {
+					this.debugLog(`Window ${w.id} is a PopNote window, skipping`);
+					return false;
+				}
+				
+				this.debugLog(`Window ${w.id} is a potential main window`);
+				return true;
+			});
+			
+			if (mainWindow) {
+				this.debugLog(`Found main window with ID: ${mainWindow.id}, minimized: ${mainWindow.isMinimized()}, visible: ${mainWindow.isVisible()}`);
+				
+				// If the main window is minimized, restore it
+				if (mainWindow.isMinimized()) {
+					this.debugLog('Main window is minimized, restoring...');
+					mainWindow.restore();
+				}
+				
+				// If the main window is not visible, show it
+				if (!mainWindow.isVisible()) {
+					this.debugLog('Main window is not visible, showing...');
+					mainWindow.show();
+				}
+				
+				// Focus the main window
+				this.debugLog('Focusing main window...');
+				mainWindow.focus();
+			} else {
+				this.debugLog('No main window found during app activation');
+				
+				// If no main window exists and only PopNote windows exist,
+				// we might need to create a new main window or notify the user
+				const hasOnlyPopNoteWindows = allWindows.every((w: any) => {
+					const windowAny = w as any;
+					return windowAny.isPopNote === true || w.isDestroyed();
+				});
+				
+				if (hasOnlyPopNoteWindows && allWindows.length > 0) {
+					this.debugLog('Only PopNote windows exist, cannot restore main window');
+					// The main window might have been closed unexpectedly
+					// In this case, Obsidian should handle creating a new main window
+				}
+			}
+		} catch (error) {
+			this.debugError('Error in handleAppActivate:', error);
+		}
+	}
+	
 	private async writeToLogFile(level: string, message: string) {
 		// Don't check debug mode here - it's already checked in the calling methods
 		try {
@@ -739,18 +826,20 @@ export default class PopNotePlugin extends Plugin {
 					this.popNoteWindow.setPosition(x, y);
 				}
 				
-				// Re-apply always-on-top settings before showing (may be lost during hide)
-				if (this.settings.alwaysOnTop) {
+				// Re-apply window level settings before showing (may be lost during hide)
+				if (this.settings.windowLevel !== 'normal') {
 					try {
+						// Set always on top for floating and screen-saver levels
 						this.popNoteWindow.setAlwaysOnTop(true, this.settings.windowLevel);
 						
-						if (process.platform === 'darwin' && this.settings.visibleOnAllWorkspaces) {
+						// For screen-saver level on macOS, also set visible on all workspaces
+						if (process.platform === 'darwin' && this.settings.windowLevel === 'screen-saver' && this.settings.visibleOnAllWorkspaces) {
 							this.popNoteWindow.setVisibleOnAllWorkspaces(true, { 
 								visibleOnFullScreen: true 
 							});
 						}
 					} catch (error) {
-						this.debugError('Failed to re-apply always-on-top settings:', error);
+						this.debugError('Failed to re-apply window level settings:', error);
 					}
 				}
 				
@@ -1056,18 +1145,20 @@ export default class PopNotePlugin extends Plugin {
 						this.debugError('Error setting window properties:', error);
 					}
 
-					// Apply always-on-top settings
-					if (this.settings.alwaysOnTop) {
+					// Apply window level settings
+					if (this.settings.windowLevel !== 'normal') {
 						try {
+							// Set always on top for floating and screen-saver levels
 							newWindow.setAlwaysOnTop(true, this.settings.windowLevel);
 							
-							if (process.platform === 'darwin' && this.settings.visibleOnAllWorkspaces) {
+							// For screen-saver level on macOS, also set visible on all workspaces
+							if (process.platform === 'darwin' && this.settings.windowLevel === 'screen-saver' && this.settings.visibleOnAllWorkspaces) {
 								newWindow.setVisibleOnAllWorkspaces(true, { 
 									visibleOnFullScreen: true 
 								});
 							}
 						} catch (error) {
-							this.debugError('Failed to set always-on-top:', error);
+							this.debugError('Failed to set window level settings:', error);
 						}
 					}
 
@@ -2406,36 +2497,52 @@ class PopNoteSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Always-on-top settings
-		containerEl.createEl('h3', { text: 'Floating Window Settings' });
+		// Window behavior settings
+		containerEl.createEl('h3', { text: 'Window Behavior' });
 		containerEl.createEl('p', {
-			text: 'Configure PopNote windows to float above other windows.',
+			text: 'Configure how PopNote windows interact with other windows.',
 			cls: 'setting-item-description'
 		});
 
-		new Setting(containerEl)
-			.setName('Always on top')
-			.setDesc('Make PopNote windows float above all other windows')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.alwaysOnTop)
-				.onChange(async (value) => {
-					this.plugin.settings.alwaysOnTop = value;
-					await this.plugin.saveSettings();
-					updateFloatingSettingsVisibility();
-				}));
-
-		// Window level setting - only show if always-on-top is enabled
+		// Window level setting
 		const windowLevelSetting = new Setting(containerEl)
 			.setName('Window level')
-			.setDesc('Controls window priority. "High priority" is recommended for most use cases.')
+			.setDesc('Choose how PopNote windows behave.')
 			.addDropdown(dropdown => dropdown
-				.addOption('screen-saver', 'High priority - Floats above most windows')
-				.addOption('normal', 'Normal - Standard window behavior')
+				.addOption('screen-saver', 'Fullscreen')
+				.addOption('floating', 'Floating')
+				.addOption('normal', 'Normal')
 				.setValue(this.plugin.settings.windowLevel)
 				.onChange(async (value) => {
-					this.plugin.settings.windowLevel = value as 'screen-saver' | 'normal';
+					this.plugin.settings.windowLevel = value as 'screen-saver' | 'floating' | 'normal';
 					await this.plugin.saveSettings();
+					// Update the visibility of the visibleOnAllWorkspaces setting
+					updateFloatingSettingsVisibility();
 				}));
+		
+		// Add detailed description
+		const windowLevelDesc = windowLevelSetting.descEl;
+		windowLevelDesc.empty();
+		windowLevelDesc.createSpan({ text: 'Controls how PopNote windows behave:' });
+		windowLevelDesc.createEl('br');
+		windowLevelDesc.createEl('br');
+		
+		// Fullscreen description
+		windowLevelDesc.createEl('strong', { text: '• Fullscreen: ' });
+		windowLevelDesc.createSpan({ text: 'Appears above fullscreen apps. ' });
+		if (process.platform === 'darwin') {
+			windowLevelDesc.createSpan({ text: 'May affect dock behavior.', cls: 'mod-warning' });
+		}
+		windowLevelDesc.createEl('br');
+		
+		// Floating description
+		windowLevelDesc.createEl('strong', { text: '• Floating: ' });
+		windowLevelDesc.createSpan({ text: 'Always on top, better OS integration. No fullscreen support.' });
+		windowLevelDesc.createEl('br');
+		
+		// Normal description
+		windowLevelDesc.createEl('strong', { text: '• Normal: ' });
+		windowLevelDesc.createSpan({ text: 'Standard window behavior, no floating.' });
 
 		// macOS specific setting - only show if always-on-top is enabled and on macOS
 		const visibleOnAllWorkspacesSetting = new Setting(containerEl)
@@ -2448,13 +2555,13 @@ class PopNoteSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Control visibility based on always-on-top setting
+		// Control visibility based on window level
 		const updateFloatingSettingsVisibility = () => {
-			const display = this.plugin.settings.alwaysOnTop ? 'flex' : 'none';
-			windowLevelSetting.settingEl.style.display = display;
-			// Only show macOS setting on macOS and if always-on-top is enabled
-			if (process.platform === 'darwin') {
-				visibleOnAllWorkspacesSetting.settingEl.style.display = display;
+			const windowLevel = this.plugin.settings.windowLevel;
+			
+			// Show visibleOnAllWorkspaces only on macOS and when using screen-saver level
+			if (process.platform === 'darwin' && windowLevel === 'screen-saver') {
+				visibleOnAllWorkspacesSetting.settingEl.style.display = 'flex';
 			} else {
 				visibleOnAllWorkspacesSetting.settingEl.style.display = 'none';
 			}
