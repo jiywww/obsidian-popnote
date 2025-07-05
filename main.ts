@@ -29,8 +29,7 @@ interface PopNoteSettings {
 	pickerDeleteShortcut: string;
 	pickerOpenInNewTabShortcut: string;
 	pickerOpenInNewWindowShortcut: string;
-	// Always-on-top settings
-	alwaysOnTop: boolean;
+	// Window behavior settings
 	windowLevel: 'screen-saver' | 'floating' | 'normal';
 	visibleOnAllWorkspaces: boolean;
 	// Cursor position settings
@@ -66,8 +65,7 @@ const DEFAULT_SETTINGS: PopNoteSettings = {
 	pickerDeleteShortcut: 'Mod+D',
 	pickerOpenInNewTabShortcut: 'Mod+Enter',
 	pickerOpenInNewWindowShortcut: 'Alt+Enter',
-	// Always-on-top settings
-	alwaysOnTop: false,
+	// Window behavior settings
 	windowLevel: 'screen-saver',
 	visibleOnAllWorkspaces: false,
 	// Cursor position settings
@@ -279,6 +277,20 @@ export default class PopNotePlugin extends Plugin {
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		
+		// Migration: Handle legacy alwaysOnTop setting
+		// If user had alwaysOnTop disabled, set windowLevel to 'normal'
+		// If user had alwaysOnTop enabled, keep their existing windowLevel
+		const settingsAny = this.settings as any;
+		if ('alwaysOnTop' in settingsAny) {
+			if (!settingsAny.alwaysOnTop && this.settings.windowLevel !== 'normal') {
+				this.settings.windowLevel = 'normal';
+				this.debugLog('Migrated: alwaysOnTop was false, setting windowLevel to normal');
+			}
+			// Clean up the old setting
+			delete settingsAny.alwaysOnTop;
+			await this.saveSettings();
+		}
 	}
 
 	async saveSettings() {
@@ -815,8 +827,9 @@ export default class PopNotePlugin extends Plugin {
 				}
 				
 				// Re-apply window level settings before showing (may be lost during hide)
-				if (this.settings.alwaysOnTop && this.settings.windowLevel !== 'normal') {
+				if (this.settings.windowLevel !== 'normal') {
 					try {
+						// Set always on top for floating and screen-saver levels
 						this.popNoteWindow.setAlwaysOnTop(true, this.settings.windowLevel);
 						
 						// For screen-saver level on macOS, also set visible on all workspaces
@@ -1133,9 +1146,9 @@ export default class PopNotePlugin extends Plugin {
 					}
 
 					// Apply window level settings
-					if (this.settings.alwaysOnTop && this.settings.windowLevel !== 'normal') {
+					if (this.settings.windowLevel !== 'normal') {
 						try {
-							// Set always on top with the appropriate level
+							// Set always on top for floating and screen-saver levels
 							newWindow.setAlwaysOnTop(true, this.settings.windowLevel);
 							
 							// For screen-saver level on macOS, also set visible on all workspaces
@@ -2484,29 +2497,17 @@ class PopNoteSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Always-on-top settings
-		containerEl.createEl('h3', { text: 'Floating Window Settings' });
+		// Window behavior settings
+		containerEl.createEl('h3', { text: 'Window Behavior' });
 		containerEl.createEl('p', {
-			text: 'Configure PopNote windows to float above other windows.',
+			text: 'Configure how PopNote windows interact with other windows.',
 			cls: 'setting-item-description'
 		});
 
-		const alwaysOnTopSetting = new Setting(containerEl)
-			.setName('Always on top')
-			.setDesc('Make PopNote windows float above all other windows')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.alwaysOnTop)
-				.onChange(async (value) => {
-					this.plugin.settings.alwaysOnTop = value;
-					await this.plugin.saveSettings();
-					updateFloatingSettingsVisibility();
-				}));
-		alwaysOnTopSetting.settingEl.addClass('always-on-top-toggle');
-
-		// Window level setting - only show if always-on-top is enabled
+		// Window level setting
 		const windowLevelSetting = new Setting(containerEl)
 			.setName('Window level')
-			.setDesc('Choose how PopNote windows interact with other windows.')
+			.setDesc('Choose how PopNote windows behave.')
 			.addDropdown(dropdown => dropdown
 				.addOption('screen-saver', 'Fullscreen')
 				.addOption('floating', 'Floating')
@@ -2519,34 +2520,29 @@ class PopNoteSettingTab extends PluginSettingTab {
 					updateFloatingSettingsVisibility();
 				}));
 		
-		// Add detailed description based on selected level
-		const updateWindowLevelDescription = () => {
-			const descEl = windowLevelSetting.descEl;
-			const currentLevel = this.plugin.settings.windowLevel;
-			
-			// Clear existing description and add base description
-			descEl.empty();
-			descEl.createSpan({ text: 'Choose how PopNote windows interact with other windows. ' });
-			
-			// Add level-specific description
-			if (currentLevel === 'screen-saver') {
-				descEl.createEl('br');
-				descEl.createEl('strong', { text: 'Fullscreen: ' });
-				descEl.createSpan({ text: 'Appears above fullscreen apps. On macOS, may cause dock icon issues when main window is minimized.' });
-			} else if (currentLevel === 'floating') {
-				descEl.createEl('br');
-				descEl.createEl('strong', { text: 'Floating: ' });
-				descEl.createSpan({ text: 'Always on top with better dock integration. Cannot appear above fullscreen apps.' });
-			} else if (currentLevel === 'normal') {
-				descEl.createEl('br');
-				descEl.createEl('strong', { text: 'Normal: ' });
-				descEl.createSpan({ text: 'Standard window behavior without always-on-top functionality.' });
-			}
-		};
+		// Add detailed description
+		const windowLevelDesc = windowLevelSetting.descEl;
+		windowLevelDesc.empty();
+		windowLevelDesc.createSpan({ text: 'Controls how PopNote windows behave:' });
+		windowLevelDesc.createEl('br');
+		windowLevelDesc.createEl('br');
 		
-		// Update description initially and on change
-		updateWindowLevelDescription();
-		windowLevelSetting.controlEl.addEventListener('change', updateWindowLevelDescription);
+		// Fullscreen description
+		windowLevelDesc.createEl('strong', { text: '• Fullscreen: ' });
+		windowLevelDesc.createSpan({ text: 'Appears above fullscreen apps. ' });
+		if (process.platform === 'darwin') {
+			windowLevelDesc.createSpan({ text: 'May affect dock behavior.', cls: 'mod-warning' });
+		}
+		windowLevelDesc.createEl('br');
+		
+		// Floating description
+		windowLevelDesc.createEl('strong', { text: '• Floating: ' });
+		windowLevelDesc.createSpan({ text: 'Always on top, better OS integration. No fullscreen support.' });
+		windowLevelDesc.createEl('br');
+		
+		// Normal description
+		windowLevelDesc.createEl('strong', { text: '• Normal: ' });
+		windowLevelDesc.createSpan({ text: 'Standard window behavior, no floating.' });
 
 		// macOS specific setting - only show if always-on-top is enabled and on macOS
 		const visibleOnAllWorkspacesSetting = new Setting(containerEl)
@@ -2559,31 +2555,15 @@ class PopNoteSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Control visibility based on always-on-top setting and window level
+		// Control visibility based on window level
 		const updateFloatingSettingsVisibility = () => {
-			const alwaysOnTopEnabled = this.plugin.settings.alwaysOnTop;
 			const windowLevel = this.plugin.settings.windowLevel;
 			
-			// Show window level setting only if always-on-top is enabled
-			windowLevelSetting.settingEl.style.display = alwaysOnTopEnabled ? 'flex' : 'none';
-			
-			// Show visibleOnAllWorkspaces only on macOS, when always-on-top is enabled, 
-			// and when using screen-saver level (needed for fullscreen support)
-			if (process.platform === 'darwin' && alwaysOnTopEnabled && windowLevel === 'screen-saver') {
+			// Show visibleOnAllWorkspaces only on macOS and when using screen-saver level
+			if (process.platform === 'darwin' && windowLevel === 'screen-saver') {
 				visibleOnAllWorkspacesSetting.settingEl.style.display = 'flex';
 			} else {
 				visibleOnAllWorkspacesSetting.settingEl.style.display = 'none';
-			}
-			
-			// If normal window level is selected, disable always-on-top
-			if (windowLevel === 'normal' && alwaysOnTopEnabled) {
-				this.plugin.settings.alwaysOnTop = false;
-				this.plugin.saveSettings();
-				// Update the toggle to reflect the change
-				const alwaysOnTopToggle = containerEl.querySelector('.always-on-top-toggle input[type="checkbox"]') as HTMLInputElement;
-				if (alwaysOnTopToggle) {
-					alwaysOnTopToggle.checked = false;
-				}
 			}
 		};
 
