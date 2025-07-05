@@ -119,7 +119,6 @@ export default class PopNotePlugin extends Plugin {
 	private lastNavigationTimestamp: number = 0;
 	private shouldCreateNewNote: boolean = false;
 	private mainWindowWasVisible: boolean = false;
-	private isStandalone: boolean = false; // Track if PopNote is running alone
 
 	async onload() {
 		await this.loadSettings();
@@ -146,6 +145,7 @@ export default class PopNotePlugin extends Plugin {
 
 		// Register all global hotkeys
 		this.registerGlobalHotkeys();
+		
 		
 		// Try to reconnect to existing PopNote windows
 		this.reconnectExistingPopNoteWindows();
@@ -347,99 +347,40 @@ export default class PopNotePlugin extends Plugin {
 	}
 	
 	private reconnectExistingPopNoteWindows() {
+		// With Solution 2, we don't reconnect to existing PopNote windows
+		// They should have been closed when the main window closed
+		this.debugLog('reconnectExistingPopNoteWindows: Skipping reconnection (Solution 2 - PopNote windows close with main window)');
+		
+		// However, let's check if there are any orphaned PopNote windows and close them
 		try {
 			setTimeout(() => {
 				const allWindows = BrowserWindow.getAllWindows();
-				this.debugLog(`Checking for existing PopNote windows. Found ${allWindows.length} total windows`);
+				const vaultName = this.app.vault.getName();
 				
-				// Look for PopNote windows by checking their title or other properties
+				this.debugLog(`Checking for orphaned PopNote windows. Found ${allWindows.length} total windows`);
+				
 				for (const window of allWindows) {
 					if (window && !window.isDestroyed()) {
-						try {
-							const title = window.getTitle();
-							// Check if this looks like a PopNote window
-							// PopNote windows typically have titles like "filename.md - vault name"
-							if (title && (title.includes('PopNote') || this.isPopNoteWindowTitle(title))) {
-								// Found a potential PopNote window
-								this.debugLog(`Found potential PopNote window: "${title}", ID: ${window.id}`);
-								
-								// Check if it's not the main window
-								const isMainWindow = allWindows.some((w: any) => 
-									w !== window && w.getTitle && w.getTitle().includes('Obsidian')
-								);
-								
-								if (!isMainWindow || allWindows.length > 1) {
-									this.popNoteWindow = window;
-									this.debugLog(`Reconnected to existing PopNote window ID: ${window.id} (restored from previous session)`);
-									
-									// Try to find the associated leaf
-									const leaves = this.app.workspace.getLeavesOfType('markdown');
-									for (const leaf of leaves) {
-										if ((leaf as any).view?.containerEl?.ownerDocument?.defaultView === window) {
-											this.popNoteLeaf = leaf;
-											this.currentFile = (leaf.view as any).file;
-											this.debugLog(`Found associated leaf and file: ${this.currentFile?.path}`);
-											break;
-										}
-									}
-									
-									// Set up event listeners for this window
-									this.setupWindowEventListeners(window);
-									
-									// Re-apply always-on-top settings
-									if (this.settings.alwaysOnTop) {
-										try {
-											window.setAlwaysOnTop(true, this.settings.windowLevel);
-											this.debugLog(`Applied always-on-top with level: ${this.settings.windowLevel}`);
-											
-											if (process.platform === 'darwin' && this.settings.visibleOnAllWorkspaces) {
-												window.setVisibleOnAllWorkspaces(true, { 
-													visibleOnFullScreen: true 
-												});
-												this.debugLog('Applied visible on all workspaces');
-											}
-										} catch (error) {
-											this.debugLog(`Failed to apply window settings: ${error}`);
-										}
-									}
-									
-									// Set main window visibility state
-									const mainWindow = allWindows.find((w: any) => 
-										w !== window && !w.isDestroyed() && w.isVisible()
-									);
-									this.mainWindowWasVisible = !!mainWindow;
-									this.debugLog(`Main window visible on reconnect: ${this.mainWindowWasVisible}`);
-									
-									// Mark that we've successfully reconnected
-									new Notice('PopNote: Reconnected to previous session window');
-									break;
-								}
+						const windowAny = window as any;
+						
+						// Check if this is a PopNote window for our vault
+						if (windowAny.isPopNote === true && windowAny.vaultId === vaultName) {
+							this.debugLog(`Found orphaned PopNote window for our vault! Window ID: ${window.id}, popNoteId: ${windowAny.popNoteId}`);
+							this.debugLog('Closing orphaned PopNote window...');
+							
+							try {
+								window.close();
+								this.debugLog(`Closed orphaned PopNote window ID: ${window.id}`);
+							} catch (error) {
+								this.debugError(`Error closing orphaned PopNote window ${window.id}:`, error);
 							}
-						} catch (e) {
-							// Window might be destroyed while checking
-							this.debugLog(`Error checking window: ${e}`);
 						}
 					}
 				}
 			}, 1000); // Wait a bit for windows to be ready
 		} catch (error) {
-			this.debugLog(`Error in reconnectExistingPopNoteWindows: ${error}`);
+			this.debugLog(`Error checking for orphaned PopNote windows: ${error}`);
 		}
-	}
-	
-	private isPopNoteWindowTitle(title: string): boolean {
-		// Check if the title matches our PopNote patterns
-		if (!title) return false;
-		
-		// Check against our PopNotes folder
-		if (title.includes(this.settings.popNotesFolder)) return true;
-		
-		// Check against known PopNote patterns
-		const popNotePattern = this.settings.noteNamePattern.replace(/{{date}}/g, '\\d{4}-\\d{2}-\\d{2}')
-			.replace(/{{time}}/g, '\\d{2}-\\d{2}-\\d{2}');
-		const regex = new RegExp(popNotePattern);
-		
-		return regex.test(title);
 	}
 	
 	private registerAppQuitHandlers() {
@@ -488,8 +429,8 @@ export default class PopNotePlugin extends Plugin {
 					// Watch for main window being closed
 					mainWindow.on('close', () => {
 						this.debugLog('Main window close event fired!');
-						// Don't clean up PopNote - let it run standalone
-						this.isStandalone = true;
+						// Close all PopNote windows for this vault when main window closes
+						this.closeAllPopNoteWindowsForVault();
 					});
 					
 					// Watch for main window being hidden
@@ -536,15 +477,8 @@ export default class PopNotePlugin extends Plugin {
 								this.debugLog(`PopNote running standalone. Total windows: ${allWindows.length}, Visible: ${visibleWindows.length}`);
 							}
 							
-							// Mark that we're in standalone mode
-							if (!this.isStandalone) {
-								this.isStandalone = true;
-								this.debugLog('PopNote entered standalone mode');
-							}
-						} else if (this.isStandalone && mainWindowVisible) {
-							// Main window is back, we're no longer standalone
-							this.isStandalone = false;
-							this.debugLog('PopNote exited standalone mode - main window returned');
+							// PopNote is running alone - this shouldn't happen with Solution 2
+							this.debugLog('WARNING: PopNote running standalone - this is unexpected with Solution 2');
 						}
 					}
 				} catch (error) {
@@ -640,6 +574,43 @@ export default class PopNotePlugin extends Plugin {
 			this.currentFile = null;
 		} else {
 			this.debugLog('No PopNote window to clean up or already destroyed');
+		}
+	}
+	
+	private closeAllPopNoteWindowsForVault() {
+		this.debugLog('closeAllPopNoteWindowsForVault called - closing all PopNote windows for this vault...');
+		
+		try {
+			const allWindows = BrowserWindow.getAllWindows();
+			const vaultName = this.app.vault.getName();
+			
+			this.debugLog(`Looking for PopNote windows for vault: ${vaultName}`);
+			
+			for (const window of allWindows) {
+				if (window && !window.isDestroyed()) {
+					const windowAny = window as any;
+					
+					// Check if this is a PopNote window for our vault
+					if (windowAny.isPopNote === true && windowAny.vaultId === vaultName) {
+						this.debugLog(`Found PopNote window for our vault! Window ID: ${window.id}, popNoteId: ${windowAny.popNoteId}`);
+						
+						// If this is our tracked window, clean it up properly
+						if (window === this.popNoteWindow) {
+							this.cleanupPopNoteWindows();
+						} else {
+							// For other PopNote windows from our vault, just close them
+							try {
+								window.close();
+								this.debugLog(`Closed PopNote window ID: ${window.id}`);
+							} catch (error) {
+								this.debugError(`Error closing PopNote window ${window.id}:`, error);
+							}
+						}
+					}
+				}
+			}
+		} catch (error) {
+			this.debugError('Error in closeAllPopNoteWindowsForVault:', error);
 		}
 	}
 	
@@ -1063,7 +1034,7 @@ export default class PopNotePlugin extends Plugin {
 			try {
 				const allWindows = BrowserWindow.getAllWindows();
 				// Find the new window by comparing with windows before
-				let newWindow = null;
+				let newWindow: any = null;
 				
 				for (const window of allWindows) {
 					if (!windowsBefore.includes(window) && !window.isDestroyed()) {
@@ -1075,6 +1046,19 @@ export default class PopNotePlugin extends Plugin {
 				if (newWindow) {
 					this.popNoteWindow = newWindow;
 					this.debugLog(`Created PopNote window with ID: ${newWindow.id}`);
+					
+					// Set custom window properties to identify PopNote windows
+					try {
+						// Set custom properties on the window object
+						const windowAny = newWindow as any;
+						windowAny.isPopNote = true;
+						windowAny.vaultId = this.app.vault.getName();
+						windowAny.popNoteId = `popnote-${Date.now()}-${newWindow.id}`;
+						
+						this.debugLog(`Set PopNote window properties - vaultId: ${this.app.vault.getName()}, popNoteId: ${windowAny.popNoteId}`);
+					} catch (error) {
+						this.debugError('Error setting window properties:', error);
+					}
 
 					// Apply always-on-top settings
 					if (this.settings.alwaysOnTop) {
