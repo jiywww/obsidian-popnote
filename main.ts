@@ -1890,7 +1890,15 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 	}
 
 	private async deleteNote(item: PopNoteItem) {
+		// Temporarily disable event handlers on the picker modal to prevent interference
+		const originalKeydownHandler = this.keydownHandler;
+		this.modalEl.removeEventListener('keydown', originalKeydownHandler, true);
+		
 		const confirmDelete = await this.confirmDelete(item.displayText);
+		
+		// Re-enable event handlers
+		this.modalEl.addEventListener('keydown', originalKeydownHandler, true);
+		
 		if (confirmDelete) {
 			await this.plugin.deletePopNote(item.file);
 			// Remove from notes array
@@ -1954,7 +1962,57 @@ class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 				resolve(true);
 			});
 
+			// Add keyboard shortcuts
+			const handleKeydown = (evt: KeyboardEvent) => {
+				if (evt.key === 'Enter') {
+					evt.preventDefault();
+					evt.stopPropagation();
+					modal.close();
+					resolve(true); // Enter confirms deletion
+				} else if (evt.key === 'Escape') {
+					evt.preventDefault();
+					evt.stopPropagation();
+					modal.close();
+					resolve(false); // Esc cancels
+				}
+			};
+
+			// Register keyboard event handler on document level to capture all key events
+			const handleGlobalKeydown = (evt: KeyboardEvent) => {
+				// While modal is open, capture Enter and Escape keys
+				if (evt.key === 'Enter' || evt.key === 'Escape') {
+					handleKeydown(evt);
+				}
+			};
+			
+			// Add instructions text
+			const instructionsEl = modal.contentEl.createEl('p', {
+				text: 'Press Enter to confirm, Esc to cancel',
+				cls: 'setting-item-description'
+			});
+			instructionsEl.style.marginTop = '10px';
+			instructionsEl.style.fontSize = '0.9em';
+
+			// Register event handlers
+			modal.modalEl.addEventListener('keydown', handleKeydown);
+			document.addEventListener('keydown', handleGlobalKeydown, true); // Use capture phase
+			
+			// Clean up global handler when modal closes
+			const originalClose = modal.close.bind(modal);
+			modal.close = () => {
+				document.removeEventListener('keydown', handleGlobalKeydown, true);
+				originalClose();
+			};
+
 			modal.open();
+			
+			// Force focus on the modal and delete button
+			setTimeout(() => {
+				modal.modalEl.focus();
+				deleteButton.focus();
+				// Set tabindex to ensure modal can receive focus
+				modal.modalEl.setAttribute('tabindex', '-1');
+			}, 50);
 		});
 	}
 
