@@ -20,6 +20,10 @@ export default class PopNotePlugin extends Plugin {
 	private windowManager: WindowManager;
 	private lastNavigationTimestamp: number = 0;
 
+	getWindowManager(): WindowManager {
+		return this.windowManager;
+	}
+
 	async onload() {
 		await this.loadSettings();
 		
@@ -408,11 +412,46 @@ export default class PopNotePlugin extends Plugin {
 		return files;
 	}
 
-	async deletePopNote(file: TFile) {
+	async deletePopNote(file: TFile, nextFile?: TFile | null) {
+		// Check if the file being deleted is currently open in PopNote window
+		const currentFile = this.windowManager.getCurrentFile();
+		const isCurrentFileBeingDeleted = currentFile && currentFile.path === file.path;
+		
+		// If it is, find the next file to open
+		let nextFileToOpen: TFile | null = null;
+		if (isCurrentFileBeingDeleted) {
+			// Use the provided nextFile if available
+			if (nextFile !== undefined) {
+				nextFileToOpen = nextFile;
+			} else {
+				// Fall back to the original logic if no nextFile provided
+				const sortedNotes = await this.getPopNotesSorted();
+				const currentIndex = sortedNotes.findIndex(f => f.path === file.path);
+				
+				if (currentIndex !== -1 && sortedNotes.length > 1) {
+					// Try to get the next file, or the previous if we're at the end
+					if (currentIndex < sortedNotes.length - 1) {
+						nextFileToOpen = sortedNotes[currentIndex + 1];
+					} else if (currentIndex > 0) {
+						nextFileToOpen = sortedNotes[currentIndex - 1];
+					}
+				}
+			}
+		}
+		
+		// Delete the file
 		await this.app.vault.delete(file);
 		// Clear cursor position
 		this.fileTracker.clearCursorPosition(file.path);
 		await this.saveSettings();
+		
+		// Open the next file if needed
+		if (isCurrentFileBeingDeleted && nextFileToOpen) {
+			// Use a small delay to ensure the deletion is processed
+			setTimeout(() => {
+				this.windowManager.showPopNoteWindow(nextFileToOpen!);
+			}, 100);
+		}
 	}
 
 	togglePinNote(notePath: string) {

@@ -363,7 +363,26 @@ export class PopNotePickerModal extends FuzzySuggestModal<PopNoteItem> {
 		this.modalEl.addEventListener('keydown', originalKeydownHandler, true);
 		
 		if (confirmDelete) {
-			await this.plugin.deletePopNote(item.file);
+			// Find the next file to open if this is the current file
+			let nextFile: TFile | null = null;
+			const currentFile = this.plugin.getWindowManager().getCurrentFile();
+			if (currentFile && currentFile.path === item.file.path) {
+				// Get all items in the current sorted order
+				const allItems = this.getItems();
+				const currentIndex = allItems.findIndex(i => i.file.path === item.file.path);
+				
+				if (currentIndex !== -1 && allItems.length > 1) {
+					// Try to get the next item, or the previous if we're at the end
+					if (currentIndex < allItems.length - 1) {
+						nextFile = allItems[currentIndex + 1].file;
+					} else if (currentIndex > 0) {
+						nextFile = allItems[currentIndex - 1].file;
+					}
+				}
+			}
+			
+			// Delete the note with the next file information
+			await this.plugin.deletePopNote(item.file, nextFile);
 			// Remove from notes array
 			this.notes = this.notes.filter(note => note.path !== item.file.path);
 			// Close and reopen to refresh the display
