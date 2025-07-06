@@ -253,35 +253,12 @@ This document provides a complete reference for all PopNote settings, including 
 
 ## Floating Window Settings
 
-### Always On Top
-
-**Type:** Toggle  
-**Default:** Off  
-**Description:** Makes PopNote windows float above other windows.
-
-**When Enabled:**
-- PopNote stays visible over other apps
-- Cannot be covered by normal windows
-- Follows window level setting
-
-**Use Cases:**
-- Live transcription
-- Reference notes
-- Stream overlays
-- Presentation notes
-
-**Risks:**
-- May block important content
-- Can be distracting
-- Some apps may override
-
 ### Window Level
 
 **Type:** Dropdown  
 **Default:** Fullscreen (screen-saver)  
 **Options:** Fullscreen, Floating, Normal  
-**Visible When:** Always On Top = On  
-**Description:** Controls how PopNote windows interact with other windows.
+**Description:** Controls how PopNote windows behave and interact with other windows.
 
 #### Window Levels
 
@@ -318,7 +295,7 @@ This document provides a complete reference for all PopNote settings, including 
 **Type:** Toggle  
 **Default:** Off  
 **Platform:** macOS only  
-**Visible When:** Always On Top = On AND Window Level = Fullscreen  
+**Visible When:** Window Level = Fullscreen  
 **Description:** Shows PopNote on all virtual desktops/spaces.
 
 **Benefits:**
@@ -509,7 +486,6 @@ Keyboard shortcuts active within the PopNote picker modal.
   "pickerDeleteShortcut": "Mod+D",
   "pickerOpenInNewTabShortcut": "Mod+Enter",
   "pickerOpenInNewWindowShortcut": "Alt+Enter",
-  "alwaysOnTop": false,
   "windowLevel": "screen-saver",
   "visibleOnAllWorkspaces": false,
   "cursorPosition": "start",

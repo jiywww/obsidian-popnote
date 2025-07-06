@@ -181,18 +181,6 @@ PopNote uses a **hide/show pattern** instead of closing and recreating windows. 
 
 ### Floating Window Features
 
-#### Always On Top
-
-When enabled, PopNote windows float above all other windows.
-
-**Benefits:**
-- Never lose your notes behind other windows
-- Great for reference material
-- Perfect for live note-taking
-
-**Potential Issues:**
-- May block content in other applications
-- Can be distracting if not needed
 
 #### Window Level Options
 
