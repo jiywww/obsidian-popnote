@@ -30,6 +30,10 @@ export default class PopNotePlugin extends Plugin {
 		
 		// Initialize utilities
 		this.logger = new Logger(this.app, this.settings.debugMode);
+		// Enable file logging when in debug mode
+		if (this.settings.debugMode) {
+			this.logger.setFileLogging(true);
+		}
 		this.hotkeyManager = new HotkeyManager(this.logger);
 		this.fileTracker = new FileTracker(this.settings, this.logger);
 		this.windowManager = new WindowManager(this.app, this, this.logger, this.fileTracker);

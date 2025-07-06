@@ -110,11 +110,15 @@ export class WindowManager {
 		// If center or undefined, let Electron center it
 
 		// Create window data for Obsidian API
-		const windowData = {
-			size: { width, height },
-			x,
-			y
+		const windowData: any = {
+			size: { width, height }
 		};
+		
+		// Only add x and y if they are defined
+		if (x !== undefined) windowData.x = x;
+		if (y !== undefined) windowData.y = y;
+
+		this.logger.log('Creating window with data:', JSON.stringify(windowData));
 
 		// Store current windows before creating new one
 		const windowsBefore = BrowserWindow.getAllWindows();
@@ -122,12 +126,56 @@ export class WindowManager {
 		// Use Obsidian's API to create the window
 		const leaf = this.app.workspace.openPopoutLeaf(windowData);
 		this.popNoteLeaf = leaf;
+		
+		// Use requestAnimationFrame for more reliable timing
+		let attempts = 0;
+		const maxAttempts = 10; // Prevent infinite loop
+		
+		const fixWindowSize = () => {
+			const allWindowsAfter = BrowserWindow.getAllWindows();
+			const newWindow = allWindowsAfter.find((w: any) => !windowsBefore.includes(w) && !w.isDestroyed());
+			if (newWindow) {
+				const [currentWidth, currentHeight] = newWindow.getSize();
+				this.logger.log(`Immediate check - Current size: ${currentWidth}x${currentHeight}, requested: ${width}x${height}`);
+				if (currentWidth !== width || currentHeight !== height) {
+					newWindow.setSize(width, height);
+					this.logger.log('Fixed size immediately after window creation');
+				}
+			} else if (attempts < maxAttempts) {
+				// If window not found yet, try again on next frame
+				attempts++;
+				requestAnimationFrame(fixWindowSize);
+			}
+		};
+		
+		// Start checking on next animation frame
+		requestAnimationFrame(fixWindowSize);
+		
 		await leaf.openFile(file);
+		
+		// Try to get the window immediately through the leaf
+		try {
+			const leafWin = (leaf as any).view?.containerEl?.win || (leaf as any).containerEl?.win;
+			if (leafWin && !leafWin.isDestroyed()) {
+				this.logger.log('Found window through leaf immediately');
+				const [currentWidth, currentHeight] = leafWin.getSize();
+				this.logger.log(`Current size: ${currentWidth}x${currentHeight}, requested: ${width}x${height}`);
+				if (currentWidth !== width || currentHeight !== height) {
+					leafWin.setSize(width, height);
+					this.logger.log('Set size immediately after creation');
+				}
+			}
+		} catch (e) {
+			this.logger.log('Could not get window through leaf:', e);
+		}
 		
 		// Wait for window to be created and track it
 		setTimeout(() => {
 			try {
+				this.logger.log(`Looking for new window... Windows before: ${windowsBefore.length}`);
 				const allWindows = BrowserWindow.getAllWindows();
+				this.logger.log(`Current windows: ${allWindows.length}`);
+				
 				// Find the new window by comparing with windows before
 				let newWindow: any = null;
 				
@@ -141,6 +189,16 @@ export class WindowManager {
 				if (newWindow) {
 					this.popNoteWindow = newWindow;
 					this.logger.log(`Created PopNote window with ID: ${newWindow.id}`);
+					
+					// Log actual window size immediately after creation
+					const [actualWidth, actualHeight] = newWindow.getSize();
+					this.logger.log(`Actual window size after creation: ${actualWidth}x${actualHeight} (requested: ${width}x${height})`);
+					
+					// If the size doesn't match what we requested, set it explicitly
+					if (actualWidth !== width || actualHeight !== height) {
+						this.logger.log(`Window size mismatch, setting to requested size: ${width}x${height}`);
+						newWindow.setSize(width, height);
+					}
 					
 					// Set custom window properties to identify PopNote windows
 					try {
@@ -226,6 +284,12 @@ export class WindowManager {
 			this.popNoteWindow.setSize(
 				this.plugin.settings.defaultWindowWidth,
 				this.plugin.settings.defaultWindowHeight
+			);
+		} else if (this.plugin.settings.windowSizeMode === 'remember' && this.plugin.settings.lastUsedWindowSize) {
+			// Apply remembered size
+			this.popNoteWindow.setSize(
+				this.plugin.settings.lastUsedWindowSize.width,
+				this.plugin.settings.lastUsedWindowSize.height
 			);
 		}
 		
