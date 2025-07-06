@@ -23,6 +23,8 @@ data.json
 
 # Development
 researchDocs
+*.backup
+*.log
 
 # Lovely Claude
 CLAUDE.md
