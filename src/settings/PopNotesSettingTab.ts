@@ -5,10 +5,19 @@ import { FileSuggest } from '../ui/FileSuggest';
 
 export class PopNoteSettingTab extends PluginSettingTab {
 	plugin: PopNotePlugin;
+	private debounceTimer: NodeJS.Timeout | null = null;
 
 	constructor(app: App, plugin: PopNotePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	hide(): void {
+		// Clear any pending debounce timer
+		if (this.debounceTimer) {
+			clearTimeout(this.debounceTimer);
+			this.debounceTimer = null;
+		}
 	}
 
 	display(): void {
@@ -371,7 +380,7 @@ export class PopNoteSettingTab extends PluginSettingTab {
 				} else {
 					selectedModifiers.delete(mod.value);
 				}
-				updateHotkey();
+				debouncedUpdateHotkey();
 			});
 		});
 		
@@ -392,13 +401,20 @@ export class PopNoteSettingTab extends PluginSettingTab {
 			cls: 'popnote-key-help-link'
 		});
 		
+		// Previous hotkey tracking
+		let previousHotkey = this.plugin.settings.createNoteHotkey;
+		
 		// Function to update the hotkey
 		const updateHotkey = async () => {
 			const key = keyInput.value.trim();
 			if (!key) {
 				currentHotkeyDisplay.setText('No hotkey set');
-				this.plugin.settings.createNoteHotkey = '';
-				await this.plugin.saveSettingsAndReloadHotkeys();
+				// Check if hotkey actually changed
+				if (this.plugin.settings.createNoteHotkey !== '') {
+					this.plugin.settings.createNoteHotkey = '';
+					await this.plugin.saveSettingsAndReloadHotkeys();
+					previousHotkey = '';
+				}
 				return;
 			}
 			
@@ -423,11 +439,50 @@ export class PopNoteSettingTab extends PluginSettingTab {
 			}
 			currentHotkeyDisplay.setText(displayHotkey);
 			
-			// Save hotkey
-			this.plugin.settings.createNoteHotkey = hotkey;
-			if (this.plugin.isValidHotkey(hotkey)) {
-				await this.plugin.saveSettingsAndReloadHotkeys();
+			// Check if hotkey actually changed
+			if (hotkey !== previousHotkey) {
+				// Save hotkey
+				this.plugin.settings.createNoteHotkey = hotkey;
+				if (this.plugin.isValidHotkey(hotkey)) {
+					await this.plugin.saveSettingsAndReloadHotkeys();
+					previousHotkey = hotkey; // Update the tracked previous hotkey
+				}
 			}
+		};
+		
+		// Debounced version of updateHotkey
+		const debouncedUpdateHotkey = () => {
+			// Clear any existing timer
+			if (this.debounceTimer) {
+				clearTimeout(this.debounceTimer);
+			}
+			
+			// Update display immediately for responsiveness
+			const key = keyInput.value.trim();
+			if (key) {
+				const modifiersList = Array.from(selectedModifiers).sort();
+				if (modifiersList.length > 0) {
+					const hotkeyParts = [...modifiersList, key];
+					const hotkey = hotkeyParts.join('+');
+					let displayHotkey = hotkey;
+					if (isMac && displayHotkey.includes('Alt')) {
+						displayHotkey = displayHotkey.replace(/Alt/g, 'Option');
+					}
+					currentHotkeyDisplay.setText(displayHotkey);
+					currentHotkeyDisplay.removeClass('mod-warning');
+				} else {
+					currentHotkeyDisplay.setText('⚠️ At least one modifier required');
+					currentHotkeyDisplay.addClass('mod-warning');
+				}
+			} else {
+				currentHotkeyDisplay.setText('No hotkey set');
+				currentHotkeyDisplay.removeClass('mod-warning');
+			}
+			
+			// Set up debounced save
+			this.debounceTimer = setTimeout(() => {
+				updateHotkey();
+			}, 800); // 800ms delay
 		};
 		
 		// Add input listener for key
@@ -445,10 +500,10 @@ export class PopNoteSettingTab extends PluginSettingTab {
 			}
 			
 			keyInput.value = value;
-			updateHotkey();
+			debouncedUpdateHotkey();
 		});
 		
-		// Initial update
+		// Initial update (no debounce needed)
 		updateHotkey();
 		
 		// Add CSS styles if not already added

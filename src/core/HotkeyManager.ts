@@ -40,7 +40,10 @@ export class HotkeyManager {
 			if (success) {
 				this.logger.log(`Successfully registered global hotkey: ${hotkey}`);
 				this.registeredHotkeys.push(hotkey);
-				new Notice(`PopNote: Global hotkey ${hotkey} registered successfully`);
+				// Only show success notification in debug mode
+				if (this.logger.isDebugMode()) {
+					new Notice(`PopNote: Global hotkey ${hotkey} registered successfully`);
+				}
 			} else {
 				this.logger.error(`Failed to register global hotkey: ${hotkey}`);
 				new Notice(`PopNote: Failed to register global hotkey ${hotkey}. It may be in use by another application.`);

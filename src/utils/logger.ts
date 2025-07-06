@@ -14,6 +14,10 @@ export class Logger {
 		this.debugMode = enabled;
 	}
 
+	isDebugMode(): boolean {
+		return this.debugMode;
+	}
+
 	setFileLogging(enabled: boolean) {
 		this.enableFileLogging = enabled;
 	}
