@@ -18,7 +18,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Pop Notes Folder
 
 **Type:** Text field  
-**Default:** `PopNotes`  
 **Description:** The folder where all pop notes are stored within your vault.
 
 **Details:**
@@ -39,7 +38,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Note Name Pattern
 
 **Type:** Text field  
-**Default:** `PopNote {{date}} {{time}}`  
 **Description:** Pattern for naming new pop notes using variables.
 
 **Available Variables:**
@@ -67,7 +65,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Template File
 
 **Type:** File selector  
-**Default:** None  
 **Description:** Template applied to new pop notes.
 
 **How It Works:**
@@ -93,7 +90,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Buffer Time
 
 **Type:** Dropdown + number field  
-**Default:** 5 minutes  
 **Description:** Time period for reusing the last created note.
 
 **Options:**
@@ -127,7 +123,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Sort Order
 
 **Type:** Dropdown  
-**Default:** Modified  
 **Options:** Created, Modified  
 **Description:** How notes are ordered in navigation and picker.
 
@@ -151,7 +146,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Window Size Mode
 
 **Type:** Dropdown  
-**Default:** Fixed  
 **Options:** Fixed, Remember  
 **Description:** How PopNote window sizes are determined.
 
@@ -173,7 +167,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Default Window Width/Height
 
 **Type:** Number fields  
-**Default:** 800×600 pixels  
 **Visible When:** Window Size Mode = Fixed  
 **Description:** Initial dimensions for new PopNote windows.
 
@@ -190,7 +183,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Window Position
 
 **Type:** Dropdown  
-**Default:** Center  
 **Options:** Center, Left, Right, Last  
 **Description:** Where PopNote windows appear on screen.
 
@@ -224,7 +216,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Cursor Position
 
 **Type:** Dropdown  
-**Default:** Start  
 **Options:** Start, End, Last  
 **Description:** Where the text cursor appears when opening notes.
 
@@ -256,7 +247,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Window Level
 
 **Type:** Dropdown  
-**Default:** Fullscreen (screen-saver)  
 **Options:** Fullscreen, Floating, Normal  
 **Description:** Controls how PopNote windows behave and interact with other windows.
 
@@ -293,7 +283,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Visible on All Workspaces
 
 **Type:** Toggle  
-**Default:** Off  
 **Platform:** macOS only  
 **Visible When:** Window Level = Fullscreen  
 **Description:** Shows PopNote on all virtual desktops/spaces.
@@ -319,7 +308,6 @@ This document provides a complete reference for all PopNote settings, including 
 ### Create/Open PopNote
 
 **Type:** Hotkey field  
-**Default:** `CmdOrCtrl+Shift+N`  
 **Description:** System-wide shortcut to summon PopNote.
 
 **Hotkey Format:**
@@ -361,19 +349,16 @@ These commands are available in Obsidian's Hotkeys settings. Search for "PopNote
 
 ### Navigate to Previous PopNote
 
-**Default:** None (user must set)  
 **Scope:** Obsidian only  
 **Action:** Opens previous note based on sort order
 
 ### Navigate to Next PopNote
 
-**Default:** None (user must set)  
 **Scope:** Obsidian only  
 **Action:** Opens next note or creates new if at newest
 
 ### Show PopNote Picker
 
-**Default:** None (user must set)  
 **Scope:** Obsidian only  
 **Action:** Opens the PopNote picker modal
 
@@ -391,25 +376,21 @@ Keyboard shortcuts active within the PopNote picker modal.
 ### Pin/Unpin Shortcut
 
 **Type:** Text field  
-**Default:** `Mod+P`  
 **Description:** Toggle pin status of selected note
 
 ### Delete Shortcut
 
 **Type:** Text field  
-**Default:** `Mod+D`  
 **Description:** Delete selected note (with confirmation)
 
 ### Open in New Tab Shortcut
 
 **Type:** Text field  
-**Default:** `Mod+Enter`  
 **Description:** Open selected note in new Obsidian tab
 
 ### Open in PopNote Window Shortcut
 
 **Type:** Text field  
-**Default:** `Alt+Enter`  
 **Description:** Open selected note in PopNote window
 
 **Shortcut Format:**
@@ -432,7 +413,6 @@ Keyboard shortcuts active within the PopNote picker modal.
 ### Debug Mode
 
 **Type:** Toggle  
-**Default:** Off  
 **Description:** Enables detailed logging for troubleshooting.
 
 **When Enabled:**
@@ -479,16 +459,16 @@ Keyboard shortcuts active within the PopNote picker modal.
   "defaultWindowWidth": 800,
   "defaultWindowHeight": 600,
   "pinnedNotes": [],
-  "windowSizeMode": "fixed",
+  "windowSizeMode": "remember",
   "lastUsedWindowSize": null,
   "lastCreatedNote": null,
   "pickerPinShortcut": "Mod+P",
   "pickerDeleteShortcut": "Mod+D",
   "pickerOpenInNewTabShortcut": "Mod+Enter",
   "pickerOpenInNewWindowShortcut": "Alt+Enter",
-  "windowLevel": "screen-saver",
+  "windowLevel": "normal",
   "visibleOnAllWorkspaces": false,
-  "cursorPosition": "start",
+  "cursorPosition": "end",
   "cursorPositions": {},
   "windowPosition": "center",
   "lastWindowPosition": null,

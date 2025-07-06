@@ -36,10 +36,9 @@ A **Pop Note** is a quick-access note that opens in a separate floating window. 
 
 A global hotkey is a keyboard shortcut that works **system-wide**, meaning it responds even when Obsidian is minimized or hidden behind other applications.
 
-### Default Global Hotkey
+### Global Hotkey
 
-- **Windows/Linux**: `Ctrl+Shift+N`
-- **macOS**: `Cmd+Shift+N`
+The global hotkey can be customized in the plugin settings.
 
 ### How It Works
 
@@ -88,7 +87,7 @@ The buffer time determines whether pressing the global hotkey creates a new note
 
 3. **Custom Time (Minutes)**
    - Reuses the last note if created within X minutes
-   - Default: 5 minutes
+   - Configurable in minutes
    - Best for: Capturing related thoughts in bursts
    - Example: Set to 30 minutes for meeting notes
 
@@ -153,7 +152,7 @@ PopNote uses a **hide/show pattern** instead of closing and recreating windows. 
 
 #### Fixed Size Mode
 - Windows always open at the specified dimensions
-- Default: 800×600 pixels
+- Configurable dimensions
 - Best for: Consistent workspace layouts
 
 #### Remember Last Size
@@ -261,7 +260,7 @@ The picker provides a visual interface for managing all your pop notes.
 
 ### Opening the Picker
 
-- Default: `Cmd/Ctrl+Shift+P` (configure in Obsidian hotkeys)
+- Configure in Obsidian hotkeys
 - Or use Command Palette: "Show PopNote picker"
 
 ### Picker Features
@@ -297,7 +296,7 @@ Pinning keeps important notes at the top of the picker.
 ### Deleting Notes
 
 1. Select a note in the picker
-2. Press your delete shortcut (default: `Cmd/Ctrl+D`)
+2. Press your delete shortcut
 3. Confirm deletion in the dialog
 
 **Warning:** Deletion is permanent and cannot be undone.
@@ -306,7 +305,7 @@ Pinning keeps important notes at the top of the picker.
 
 ### Storage Location
 
-All pop notes are stored in a dedicated folder (default: "PopNotes").
+All pop notes are stored in a dedicated folder.
 
 **Benefits:**
 - Easy to find all quick notes

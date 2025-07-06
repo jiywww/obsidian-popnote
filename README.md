@@ -7,7 +7,7 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 ## Features
 
 ### Global Pop Note Creation
-- **System-wide hotkey** (default: `Ctrl+Shift+N` / `Cmd+Shift+N`) to create or open pop notes from anywhere, even when Obsidian is not focused
+- **System-wide hotkey** to create or open pop notes from anywhere, even when Obsidian is not focused
 - Notes open in separate floating windows, keeping your main workspace undisturbed
 - **Hide/Show Pattern**: Windows are hidden rather than closed, preserving state and improving performance
 - Smart window management prevents duplicate windows
@@ -75,7 +75,7 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 ## Quick Configuration
 
 ### Pop Notes Settings
-- **Pop notes folder**: Specify where to store your pop notes (default: "PopNotes")
+- **Pop notes folder**: Specify where to store your pop notes
 - **Note name pattern**: Customize how notes are named with variables like `{{date}}`, `{{time}}`
 - **Template file**: Select a template to apply to new notes
 - **Buffer time**: Configure note reuse behavior (always new, always reuse, or time-based)
@@ -88,7 +88,7 @@ A powerful Obsidian plugin that enables system-wide pop note creation and manage
 - **Cursor Position**: Start, end, or remember last position
 
 ### Hotkeys
-- **Global hotkey**: System-wide shortcut (default: `Ctrl/Cmd+Shift+N`)
+- **Global hotkey**: System-wide shortcut
 - **Navigation hotkeys**: Configure in Obsidian Settings → Hotkeys
 - **Picker shortcuts**: Customizable shortcuts for pin, delete, and open actions
 
@@ -97,7 +97,7 @@ For complete details on all settings and features, please refer to the documenta
 ## Usage
 
 ### Creating Pop Notes
-1. Press your configured global hotkey (`Ctrl/Cmd+Shift+N` by default) from anywhere
+1. Press your configured global hotkey from anywhere
 2. A new pop note opens in a popup window
 3. Start typing immediately - the note is automatically saved
 
@@ -109,8 +109,8 @@ For complete details on all settings and features, please refer to the documenta
 ### Managing Notes
 - Use the Pop Notes Picker (`Cmd/Ctrl+Shift+P`) for a native Obsidian experience
 - Navigate with arrow keys and use Enter to open in current tab
-- Pin frequently used notes with your configured shortcut (default: `Cmd/Ctrl+P`)
-- Delete notes quickly with your configured shortcut (default: `Cmd/Ctrl+D`)
+- Pin frequently used notes with your configured shortcut
+- Delete notes quickly with your configured shortcut
 - Open in new tab (`Cmd/Ctrl+Enter`) or new window (`Opt/Alt+Enter`)
 - Pop notes follow your vault's normal sync and backup rules
 
