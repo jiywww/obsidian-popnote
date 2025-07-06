@@ -1,5 +1,4 @@
 import { App, MarkdownView, TFile, WorkspaceLeaf } from 'obsidian';
-import { PopNoteSettings } from '../types';
 import { Logger } from '../utils/logger';
 import { FileTracker } from './FileTracker';
 import type PopNotePlugin from './PopNotePlugin';
@@ -11,17 +10,15 @@ const { BrowserWindow } = remote;
 export class WindowManager {
 	private app: App;
 	private plugin: PopNotePlugin;
-	private settings: PopNoteSettings;
 	private logger: Logger;
 	private fileTracker: FileTracker;
 	private popNoteWindow: any = null;
 	private popNoteLeaf: WorkspaceLeaf | null = null;
 	private currentFile: TFile | null = null;
 
-	constructor(app: App, plugin: PopNotePlugin, settings: PopNoteSettings, logger: Logger, fileTracker: FileTracker) {
+	constructor(app: App, plugin: PopNotePlugin, logger: Logger, fileTracker: FileTracker) {
 		this.app = app;
 		this.plugin = plugin;
-		this.settings = settings;
 		this.logger = logger;
 		this.fileTracker = fileTracker;
 	}
@@ -85,12 +82,12 @@ export class WindowManager {
 		this.fileTracker.trackFile(file);
 		
 		// Determine window size
-		let width = this.settings.defaultWindowWidth;
-		let height = this.settings.defaultWindowHeight;
+		let width = this.plugin.settings.defaultWindowWidth;
+		let height = this.plugin.settings.defaultWindowHeight;
 		
-		if (this.settings.windowSizeMode === 'remember' && this.settings.lastUsedWindowSize) {
-			width = this.settings.lastUsedWindowSize.width;
-			height = this.settings.lastUsedWindowSize.height;
+		if (this.plugin.settings.windowSizeMode === 'remember' && this.plugin.settings.lastUsedWindowSize) {
+			width = this.plugin.settings.lastUsedWindowSize.width;
+			height = this.plugin.settings.lastUsedWindowSize.height;
 			this.logger.log('Using remembered window size:', width, 'x', height);
 		}
 
@@ -98,14 +95,14 @@ export class WindowManager {
 		let x: number | undefined;
 		let y: number | undefined;
 
-		if (this.settings.windowPosition === 'last' && this.settings.lastWindowPosition) {
-			x = this.settings.lastWindowPosition.x;
-			y = this.settings.lastWindowPosition.y;
+		if (this.plugin.settings.windowPosition === 'last' && this.plugin.settings.lastWindowPosition) {
+			x = this.plugin.settings.lastWindowPosition.x;
+			y = this.plugin.settings.lastWindowPosition.y;
 			this.logger.log('Using last window position:', x, y);
-		} else if (this.settings.windowPosition === 'left') {
+		} else if (this.plugin.settings.windowPosition === 'left') {
 			x = 0;
 			y = 0;
-		} else if (this.settings.windowPosition === 'right') {
+		} else if (this.plugin.settings.windowPosition === 'right') {
 			const { width: screenWidth } = remote.screen.getPrimaryDisplay().workAreaSize;
 			x = screenWidth - width;
 			y = 0;
@@ -158,13 +155,13 @@ export class WindowManager {
 					}
 
 					// Apply window level settings
-					if (this.settings.windowLevel !== 'normal') {
+					if (this.plugin.settings.windowLevel !== 'normal') {
 						try {
 							// Set always on top for floating and screen-saver levels
-							newWindow.setAlwaysOnTop(true, this.settings.windowLevel);
+							newWindow.setAlwaysOnTop(true, this.plugin.settings.windowLevel);
 							
 							// For screen-saver level on macOS, also set visible on all workspaces
-							if (process.platform === 'darwin' && this.settings.windowLevel === 'screen-saver' && this.settings.visibleOnAllWorkspaces) {
+							if (process.platform === 'darwin' && this.plugin.settings.windowLevel === 'screen-saver' && this.plugin.settings.visibleOnAllWorkspaces) {
 								newWindow.setVisibleOnAllWorkspaces(true, { 
 									visibleOnFullScreen: true 
 								});
@@ -178,7 +175,7 @@ export class WindowManager {
 					this.setupWindowEventHandlers(newWindow);
 
 					// Apply cursor position
-					if (this.settings.cursorPosition === 'last') {
+					if (this.plugin.settings.cursorPosition === 'last') {
 						setTimeout(() => {
 							this.restoreCursorPosition(file);
 						}, 100);
@@ -223,16 +220,16 @@ export class WindowManager {
 		}
 
 		// Apply window size if needed
-		if (this.settings.windowSizeMode === 'fixed') {
+		if (this.plugin.settings.windowSizeMode === 'fixed') {
 			// Apply fixed size from settings
 			this.popNoteWindow.setSize(
-				this.settings.defaultWindowWidth,
-				this.settings.defaultWindowHeight
+				this.plugin.settings.defaultWindowWidth,
+				this.plugin.settings.defaultWindowHeight
 			);
 		}
 		
 		// Apply window position if needed
-		if (this.settings.windowPosition !== 'last') {
+		if (this.plugin.settings.windowPosition !== 'last') {
 			// Get current size (may have just been updated)
 			const [width, height] = this.popNoteWindow.getSize();
 			const position = this.calculateWindowPosition(width, height);
@@ -240,13 +237,13 @@ export class WindowManager {
 		}
 		
 		// Re-apply window level settings before showing (may be lost during hide)
-		if (this.settings.windowLevel !== 'normal') {
+		if (this.plugin.settings.windowLevel !== 'normal') {
 			try {
 				// Set always on top for floating and screen-saver levels
-				this.popNoteWindow.setAlwaysOnTop(true, this.settings.windowLevel);
+				this.popNoteWindow.setAlwaysOnTop(true, this.plugin.settings.windowLevel);
 				
 				// For screen-saver level on macOS, also set visible on all workspaces
-				if (process.platform === 'darwin' && this.settings.windowLevel === 'screen-saver' && this.settings.visibleOnAllWorkspaces) {
+				if (process.platform === 'darwin' && this.plugin.settings.windowLevel === 'screen-saver' && this.plugin.settings.visibleOnAllWorkspaces) {
 					this.popNoteWindow.setVisibleOnAllWorkspaces(true, { 
 						visibleOnFullScreen: true 
 					});
@@ -283,13 +280,13 @@ export class WindowManager {
 		let x = 0;
 		let y = 0;
 
-		if (this.settings.windowPosition === 'last' && this.settings.lastWindowPosition) {
-			x = this.settings.lastWindowPosition.x;
-			y = this.settings.lastWindowPosition.y;
-		} else if (this.settings.windowPosition === 'left') {
+		if (this.plugin.settings.windowPosition === 'last' && this.plugin.settings.lastWindowPosition) {
+			x = this.plugin.settings.lastWindowPosition.x;
+			y = this.plugin.settings.lastWindowPosition.y;
+		} else if (this.plugin.settings.windowPosition === 'left') {
 			x = 0;
 			y = 0;
-		} else if (this.settings.windowPosition === 'right') {
+		} else if (this.plugin.settings.windowPosition === 'right') {
 			const { width: screenWidth } = remote.screen.getPrimaryDisplay().workAreaSize;
 			x = screenWidth - width;
 			y = 0;
@@ -318,12 +315,12 @@ export class WindowManager {
 		});
 
 		// Track window resize
-		if (this.settings.windowSizeMode === 'remember') {
+		if (this.plugin.settings.windowSizeMode === 'remember') {
 			window.on('resize', () => {
 				try {
 					if (!window.isDestroyed()) {
 						const [width, height] = window.getSize();
-						this.settings.lastUsedWindowSize = { width, height };
+						this.plugin.settings.lastUsedWindowSize = { width, height };
 						// Save settings immediately
 						this.plugin.saveSettings();
 						this.logger.log('Window resized to:', width, 'x', height);
@@ -335,12 +332,12 @@ export class WindowManager {
 		}
 
 		// Track window position
-		if (this.settings.windowPosition === 'last') {
+		if (this.plugin.settings.windowPosition === 'last') {
 			window.on('move', () => {
 				try {
 					if (!window.isDestroyed()) {
 						const [x, y] = window.getPosition();
-						this.settings.lastWindowPosition = { x, y };
+						this.plugin.settings.lastWindowPosition = { x, y };
 						// Save settings immediately
 						this.plugin.saveSettings();
 						this.logger.log('Window moved to:', x, y);

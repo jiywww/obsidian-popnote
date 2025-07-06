@@ -27,7 +27,7 @@ export default class PopNotePlugin extends Plugin {
 		this.logger = new Logger(this.app, this.settings.debugMode);
 		this.hotkeyManager = new HotkeyManager(this.logger);
 		this.fileTracker = new FileTracker(this.settings, this.logger);
-		this.windowManager = new WindowManager(this.app, this, this.settings, this.logger, this.fileTracker);
+		this.windowManager = new WindowManager(this.app, this, this.logger, this.fileTracker);
 
 		// Register global hotkeys
 		this.registerGlobalHotkeys();
