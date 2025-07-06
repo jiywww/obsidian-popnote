@@ -10,7 +10,7 @@ export const DEFAULT_SETTINGS: PopNoteSettings = {
 	defaultWindowWidth: 800,
 	defaultWindowHeight: 600,
 	pinnedNotes: [],
-	windowSizeMode: 'fixed',
+	windowSizeMode: 'remember',
 	lastUsedWindowSize: null,
 	lastCreatedNote: null,
 	// Picker keyboard shortcuts
@@ -19,10 +19,10 @@ export const DEFAULT_SETTINGS: PopNoteSettings = {
 	pickerOpenInNewTabShortcut: 'Mod+Enter',
 	pickerOpenInNewWindowShortcut: 'Alt+Enter',
 	// Window behavior settings
-	windowLevel: 'screen-saver',
+	windowLevel: 'normal',
 	visibleOnAllWorkspaces: false,
 	// Cursor position settings
-	cursorPosition: 'start',
+	cursorPosition: 'end',
 	cursorPositions: {},
 	// Window position settings
 	windowPosition: 'center',
