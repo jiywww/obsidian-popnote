@@ -6,7 +6,7 @@ export const DEFAULT_SETTINGS: PopNoteSettings = {
 	bufferTime: 5, // 5 minutes default
 	sortOrder: 'modified',
 	noteNamePattern: 'PopNote {{date}} {{time}}',
-	createNoteHotkey: 'CmdOrCtrl+Shift+N',
+	createNoteHotkey: 'CmdOrCtrl+Alt+N',
 	defaultWindowWidth: 800,
 	defaultWindowHeight: 600,
 	pinnedNotes: [],
