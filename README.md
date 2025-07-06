@@ -1,5 +1,7 @@
 # Obsidian PopNote
 
+![PopNote Banner](./docs/assets/readme-banner.png)
+
 A powerful Obsidian plugin that enables system-wide pop note creation and management through global hotkeys.
 
 ## Features
