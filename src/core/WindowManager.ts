@@ -163,7 +163,8 @@ export class WindowManager {
 							// For screen-saver level on macOS, also set visible on all workspaces
 							if (process.platform === 'darwin' && this.plugin.settings.windowLevel === 'screen-saver' && this.plugin.settings.visibleOnAllWorkspaces) {
 								newWindow.setVisibleOnAllWorkspaces(true, { 
-									visibleOnFullScreen: true 
+									visibleOnFullScreen: true,
+									skipTransformProcessType: true
 								});
 							}
 						} catch (error) {
@@ -245,7 +246,8 @@ export class WindowManager {
 				// For screen-saver level on macOS, also set visible on all workspaces
 				if (process.platform === 'darwin' && this.plugin.settings.windowLevel === 'screen-saver' && this.plugin.settings.visibleOnAllWorkspaces) {
 					this.popNoteWindow.setVisibleOnAllWorkspaces(true, { 
-						visibleOnFullScreen: true 
+						visibleOnFullScreen: true,
+						skipTransformProcessType: true
 					});
 				}
 			} catch (error) {

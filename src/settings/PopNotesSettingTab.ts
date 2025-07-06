@@ -273,6 +273,7 @@ export class PopNoteSettingTab extends PluginSettingTab {
 				.onChange(async (value) => {
 					this.plugin.settings.visibleOnAllWorkspaces = value;
 					await this.plugin.saveSettings();
+					updateFloatingSettingsVisibility();
 				}));
 
 		// Control visibility based on window level
