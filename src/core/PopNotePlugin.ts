@@ -19,6 +19,7 @@ export default class PopNotePlugin extends Plugin {
 	private fileTracker: FileTracker;
 	private windowManager: WindowManager;
 	private lastNavigationTimestamp: number = 0;
+	private shouldCreateNewNote: boolean = false;
 
 	getWindowManager(): WindowManager {
 		return this.windowManager;
@@ -465,11 +466,11 @@ export default class PopNotePlugin extends Plugin {
 	}
 
 	private async navigateToPreviousPopNote() {
-		await this.navigatePopNote(-1);
+		await this.navigatePopNote(1);  // Previous = go to older notes (higher index)
 	}
 
 	private async navigateToNextPopNote() {
-		await this.navigatePopNote(1);
+		await this.navigatePopNote(-1);  // Next = go to newer notes (lower index)
 	}
 
 	private async navigatePopNote(direction: number) {
@@ -478,8 +479,7 @@ export default class PopNotePlugin extends Plugin {
 		if (now - this.lastNavigationTimestamp < 100) {
 			return;
 		}
-		this.lastNavigationTimestamp = now;
-
+		
 		const currentFile = this.windowManager.getCurrentFile();
 		if (!currentFile) {
 			new Notice('No PopNote is currently open');
@@ -494,10 +494,43 @@ export default class PopNotePlugin extends Plugin {
 			return;
 		}
 
-		let newIndex = currentIndex + direction;
-		if (newIndex < 0) newIndex = notes.length - 1;
-		if (newIndex >= notes.length) newIndex = 0;
+		// Check boundaries
+		// Notes are sorted newest first (index 0 = newest, last index = oldest)
+		// direction = -1 means going to newer notes (previous in time, lower index)
+		// direction = 1 means going to older notes (next in time, higher index)
+		
+		if (direction === -1 && currentIndex === 0) {
+			// At the newest note, trying to go to an even newer note
+			const timeSinceLastNav = now - this.lastNavigationTimestamp;
+			if (this.shouldCreateNewNote && timeSinceLastNav < 3000) {
+				// Create new note on second press within 3 seconds
+				this.shouldCreateNewNote = false;
+				this.lastNavigationTimestamp = now;
+				// Create a new note and show it in the existing window
+				const newNote = await this.createNewPopNote();
+				await this.windowManager.showPopNoteWindow(newNote);
+				return;
+			} else {
+				// First press - show notice
+				new Notice('You are at the newest note. Press again to create a new note.');
+				this.shouldCreateNewNote = true;
+				this.lastNavigationTimestamp = now;
+				return;
+			}
+		} else if (direction === 1 && currentIndex === notes.length - 1) {
+			// At the oldest note, trying to go to an even older note
+			new Notice('You are at the oldest note.');
+			this.shouldCreateNewNote = false;
+			this.lastNavigationTimestamp = now;
+			return;
+		}
 
+		// Reset the create flag if we're navigating normally
+		this.shouldCreateNewNote = false;
+		this.lastNavigationTimestamp = now;
+
+		// Calculate new index without wrapping
+		const newIndex = currentIndex + direction;
 		const targetNote = notes[newIndex];
 		
 		// Save cursor position before switching
