@@ -1,5 +1,7 @@
 # Obsidian PopNote
 
+[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://coff.ee/jiywww)
+
 ![PopNote Banner](./docs/assets/readme-banner.png)
 
 A powerful Obsidian plugin that enables system-wide pop note creation and management through global hotkeys.
