@@ -142,7 +142,7 @@ For complete details on all settings and features, please refer to the documenta
 ## Support
 
 If you find this plugin helpful, consider supporting its development:
-- [GitHub Sponsors](https://github.com/sponsors/jiywww)
+- [GitHub Sponsors](https://github.com/sponsors/jiywww) (waiting for reviewing)
 - Report issues on [GitHub](https://github.com/jiywww/obsidian-popnote/issues)
 
 ## License
