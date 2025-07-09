@@ -4,9 +4,12 @@
 
 A powerful Obsidian plugin that enables system-wide pop note creation and management through global hotkeys.
 
+## Demonstration (Coming soon)
+
 ## Features
 
 ### Global Pop Note Creation
+
 - **System-wide hotkey** to create, hide or show pop notes from anywhere, even when Obsidian is not focused (but you need to keep the vault open to use the hotkey)
 - Pop notes open in a floating window separate from the Obsidian main window, keeping your main workspace undisturbed
 - **Hide/Show Pattern**: Windows are hidden rather than closed, preserving state and improving performance
