@@ -57,11 +57,6 @@ This document provides a complete reference for all PopNote settings, including 
 - `Quick Note {{hour}}-{{minute}}` → "Quick Note 14-30"
 - `{{year}}/{{month}}/Note {{day}}` → Creates in subfolder
 
-**Risks:**
-- Too simple patterns may cause naming conflicts
-- Complex patterns may be hard to search
-- Special characters may cause file system issues
-
 ### Template File
 
 **Type:** File selector  
@@ -82,11 +77,6 @@ This document provides a complete reference for all PopNote settings, including 
 - Daily journal templates
 - Project note templates
 
-**Risks:**
-- Large templates may slow creation
-- Complex templates may cause parsing errors
-- Template file deletion breaks functionality
-
 ### Buffer Time
 
 **Type:** Dropdown + number field  
@@ -95,6 +85,7 @@ This document provides a complete reference for all PopNote settings, including 
 **Options:**
 
 #### Always Create New Note
+
 - Every hotkey press creates a fresh note
 - No reuse of existing notes
 - Best for: Discrete, unrelated captures
@@ -105,6 +96,7 @@ This document provides a complete reference for all PopNote settings, including 
 - Best for: Single capture document
 
 #### Custom Time (Minutes)
+
 - Reuses if last note created within X minutes
 - Range: 1-1440 minutes (24 hours)
 - Best for: Session-based note-taking
@@ -114,11 +106,6 @@ This document provides a complete reference for all PopNote settings, including 
 2. System checks last created note timestamp
 3. If within buffer time → opens existing note
 4. If outside buffer time → creates new note
-
-**Risks:**
-- Too short: Many small notes
-- Too long: Unrelated content mixed
-- "Permanent": May accumulate too much content
 
 ### Sort Order
 
@@ -158,11 +145,6 @@ This document provides a complete reference for all PopNote settings, including 
 - Saves size when window is resized
 - Restores last used size
 - Per-session persistence
-
-**Risks:**
-- Remember mode may restore inappropriate sizes
-- Fixed mode ignores user preferences
-- Very small sizes may hide content
 
 ### Default Window Width/Height
 

@@ -78,18 +78,14 @@ The buffer time determines whether pressing the global hotkey creates a new note
 1. **Always Create New Note**
    - Every hotkey press creates a fresh note
    - Best for: Users who want separate notes for each thought
-   - Risk: May create many small notes
-
 2. **Always Reuse Last Note**
    - Always opens the most recent pop note
    - Best for: Maintaining a single "capture" note
-   - Risk: May mix unrelated content
-
 3. **Custom Time (Minutes)**
    - Reuses the last note if created within X minutes
    - Configurable in minutes
    - Best for: Capturing related thoughts in bursts
-   - Example: Set to 30 minutes for meeting notes
+   - Example: Set to 60 minutes for meeting notes
 
 ### Note Naming Patterns
 
@@ -197,9 +193,9 @@ PopNote uses a **hide/show pattern** instead of closing and recreating windows. 
 
 3. **Fullscreen (Screen-saver level)**
    - Maximum visibility priority
-   - Appears above fullscreen applications
+   - Appears above fullscreen applications (need "visible on all workspaces" option open on macOS)
    - Works with presentations and games
-   - Best for: Users who need notes visible everywhere
+   - Best for: Users who need notes to be visible everywhere
    - **macOS Note:** May cause dock icon issues when main window is minimized
 
 #### Visible on All Workspaces (macOS)
@@ -309,7 +305,7 @@ All pop notes are stored in a dedicated folder.
 
 **Benefits:**
 - Easy to find all quick notes
-- Can be excluded from graph view if desired
+- Can be excluded from the graph view if desired
 - Simple backup/export
 
 ### File Tracking System
